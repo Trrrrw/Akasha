@@ -2,13 +2,8 @@ use axum::Json;
 use chrono::{FixedOffset, SecondsFormat, Utc};
 use serde::Serialize;
 use utoipa::ToSchema;
-use utoipa_axum::{router::OpenApiRouter, routes};
 
 use axum_mcp::mcp;
-
-pub fn router() -> OpenApiRouter {
-    OpenApiRouter::new().routes(routes!(time))
-}
 
 #[mcp]
 #[utoipa::path(

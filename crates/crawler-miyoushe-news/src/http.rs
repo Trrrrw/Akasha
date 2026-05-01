@@ -24,7 +24,7 @@ where
         .await?;
 
     let data = serde_json::from_str::<T>(&text)
-        .map_err(|err| anyhow::anyhow!("json decode failed: {err}; body: {text}"))?;
+        .map_err(|err| anyhow::anyhow!("JSON 解析失败: {err}; 响应内容: {text}"))?;
 
     Ok(data)
 }
@@ -52,9 +52,9 @@ fn headers() -> anyhow::Result<HeaderMap> {
     );
     headers.insert(ORIGIN, HeaderValue::from_static("https://www.miyoushe.com"));
     let cookie = std::env::var("MIYOUSHE_COOKIE")
-        .map_err(|_| anyhow::anyhow!("missing required environment variable MIYOUSHE_COOKIE"))?;
+        .map_err(|_| anyhow::anyhow!("缺少必需的环境变量 MIYOUSHE_COOKIE"))?;
     let cookie = HeaderValue::from_str(&cookie)
-        .map_err(|err| anyhow::anyhow!("invalid MIYOUSHE_COOKIE header value: {err}"))?;
+        .map_err(|err| anyhow::anyhow!("MIYOUSHE_COOKIE 不是合法的请求头值: {err}"))?;
     headers.insert(COOKIE, cookie);
     headers.insert("x-rpc-client_type", HeaderValue::from_static("4"));
     headers.insert("x-rpc-app_version", HeaderValue::from_static("2.102.0"));

@@ -22,20 +22,20 @@ pub async fn serve(
 
             Box::pin(async move {
                 if let Err(err) = registry.run_all(ctx).await {
-                    error!(error = %err, "crawler job failed");
+                    error!(error = %err, "爬虫定时任务执行失败");
                 }
             })
         })?)
         .await?;
 
-    info!(%cron, "crawler scheduler started");
-    info!("crawler initial run started");
+    info!("爬虫启动后首次执行开始");
     if let Err(err) = registry.run_all(Arc::clone(&ctx)).await {
-        error!(error = %err, "crawler initial run failed");
+        error!(error = %err, "爬虫启动后首次执行失败");
     }
-    info!("crawler initial run finished");
+    info!("爬虫启动后首次执行完成");
 
     scheduler.start().await?;
+    info!(%cron, "爬虫定时调度已启动");
     tokio::signal::ctrl_c().await?;
     scheduler.shutdown().await?;
     Ok(())

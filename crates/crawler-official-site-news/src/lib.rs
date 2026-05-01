@@ -37,35 +37,20 @@ impl CrawlerTask for NewsOfficialSiteTask {
         })
         .await?;
 
-        let mut jobs = tokio::task::JoinSet::new();
         for game in Game::ALL {
             let source = self.name();
-            jobs.spawn(async move {
-                let result = crawl_game(source, game).await;
-                (game, result)
-            });
-        }
-        let mut failures = Vec::new();
-        while let Some(result) = jobs.join_next().await {
-            match result {
-                Ok((_, Ok(()))) => {}
-                Ok((game, Err(err))) => {
-                    failures.push(format!("{game}: {err:#}"));
-                }
-                Err(err) => {
-                    failures.push(format!("official_site join failed: {err}"));
-                }
+            if let Err(err) = crawl_game(source, game).await {
+                anyhow::bail!("官网爬虫执行失败:\n{game}: {err:#}");
             }
         }
-        if failures.is_empty() {
-            Ok(())
-        } else {
-            anyhow::bail!("official_site failed:\n{}", failures.join("\n"));
-        }
+
+        Ok(())
     }
 }
 
 async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
+    info!("官网-{}-爬取开始", game.name_zh());
+
     games::Entity::create_if_not_exists(games::Model {
         game_code: game.to_string(),
         name_en: game.name_en().to_string(),
@@ -101,9 +86,11 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
     let mut page_total = 0;
     let mut page_num = 1;
     let mut found_existing = false;
+    let mut fetched_pages = 0u32;
+    let mut saved_items = 0u32;
     while page_total == 0 || page_num <= page_total {
         info!(
-            "{} -> 正在爬取第 {page_num}/{page_total} 页",
+            "官网-{}-正在爬取第 {page_num}/{page_total} 页",
             game.name_zh()
         );
 
@@ -111,7 +98,7 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
             match http::get(game.api_base(), &game.api_params(page_num)).await {
                 Ok(Some(data)) => data,
                 _ => {
-                    warn!("{game} -> 获取第 {page_num} 页数据失败，重试中...");
+                    warn!("官网-{game}-获取第 {page_num} 页数据失败，重试中...");
                     tokio::time::sleep(Duration::from_secs(3)).await;
                     continue;
                 }
@@ -124,7 +111,7 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
             let news_remote_id = news.id.to_string();
             if news_remote_id == local_latest_news_remote_id {
                 info!(
-                    "{} -> 已找到本地最新文章:《{}》",
+                    "官网-{}-已找到本地最新文章:《{}》",
                     game.name_zh(),
                     news.title
                 );
@@ -132,13 +119,21 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                 break;
             }
             parse_and_save(news, game, source).await?;
+            saved_items += 1;
         }
         if found_existing {
             break;
         }
+        fetched_pages += 1;
         page_num += 1;
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
+
+    info!(
+        "官网-{}-爬取完成，页数={fetched_pages}，新增={saved_items}",
+        game.name_zh()
+    );
+
     Ok(())
 }
 
@@ -161,7 +156,7 @@ async fn parse_and_save(
         cover: extract_cover(game.default_cover(), &raw_data.ext, &raw_data.content),
         is_video: video_url.is_some(),
         video_url: video_url,
-        raw_data: serde_json::to_string(&raw_data).expect("serde raw_data err"),
+        raw_data: serde_json::to_string(&raw_data).expect("原始数据序列化失败"),
     };
     let news = news_items::Entity::create_if_not_exists(n).await?;
 
@@ -321,10 +316,10 @@ where
         .map_err(serde::de::Error::custom)?;
 
     let offset = FixedOffset::east_opt(8 * 3600)
-        .ok_or_else(|| serde::de::Error::custom("invalid timezone offset"))?;
+        .ok_or_else(|| serde::de::Error::custom("无效的时区偏移"))?;
 
     offset
         .from_local_datetime(&naive)
         .single()
-        .ok_or_else(|| serde::de::Error::custom("invalid datetime"))
+        .ok_or_else(|| serde::de::Error::custom("无效的日期时间"))
 }

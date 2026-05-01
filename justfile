@@ -1,23 +1,37 @@
-set windows-shell := ["powershell.exe", "-c"]
+set dotenv-load
 
-[windows]
+alias d := dev
 dev:
     clear
-    Remove-Item -LiteralPath './data' -Recurse -Force -Confirm:$false
-    cargo run
+    bash -c '\
+      trap "kill 0" INT TERM EXIT; \
+      cargo run -p Akasha & \
+      cargo run -p crawler -- serve & \
+      wait \
+    '
 
-[unix]
-dev:
+backend:
     clear
-    cargo run
+    cargo run -p Akasha
+
+crawler:
+    clear
+    cargo run -p crawler -- serve
 
 check:
     cargo fmt
     cargo check
 
+alias b := build
 build:
     clear
     cargo build --release --workspace
+
+alias bd := build-docker
+build-docker:
+    clear
+    docker build --target akasha -t akasha:latest .
+    docker build --target crawler -t akasha-crawler:latest .
 
 clean:
     clear

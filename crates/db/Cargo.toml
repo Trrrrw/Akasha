@@ -7,10 +7,11 @@ license.workspace = true
 
 [dependencies]
 sea-orm = { version = "2.0.0-rc", features = [
-    "sqlx-sqlite",
+    "sqlx-postgres",
     "runtime-tokio-rustls",
     "schema-sync",
     "entity-registry",
     "macros"
 ] }
 tokio = { workspace = true }
+tracing = { workspace = true }

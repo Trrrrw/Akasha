@@ -4,6 +4,7 @@ mod task_registry;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::sync::Arc;
+use std::time::Duration;
 use tracing_subscriber::{EnvFilter, fmt};
 
 use crawler_core::CrawlerContext;
@@ -37,7 +38,8 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    db::init("data/hoyo-info.db").await;
+    db::init().await;
+    db::wait_until_ready(Duration::from_secs(3)).await;
 
     let ctx = Arc::new(CrawlerContext);
     let registry = Arc::new(TaskRegistry::new());
@@ -58,10 +60,12 @@ async fn main() -> Result<()> {
 }
 
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,tokio_cron_scheduler=warn"));
 
     fmt()
         .with_env_filter(filter)
+        .with_target(false)
         .with_writer(std::io::stdout)
         .init();
 }

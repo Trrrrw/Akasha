@@ -11,12 +11,13 @@ use utoipa_axum::router::OpenApiRouter;
 #[tokio::main]
 async fn main() {
     init_tracing();
-    db::init("data/hoyo-info.db").await;
+    db::init_and_sync().await;
 
     let (api_router, mut api) = OpenApiRouter::new()
+        .merge(routes::root::router())
         .merge(routes::games::router())
         .merge(routes::news::router())
-        .merge(routes::time::router())
+        .merge(routes::system::router())
         .split_for_parts();
     set_api_info(&mut api);
 

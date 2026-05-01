@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use chrono::{FixedOffset, Utc};
 use db::entities::meta;
 use std::sync::Arc;
-use tokio::task::JoinSet;
+use tracing::{error, info};
 
 use crawler_core::{CrawlerContext, CrawlerTask};
 use crawler_miyoushe_news::NewsMiyousheTask;
@@ -30,7 +30,7 @@ impl TaskRegistry {
             .tasks
             .iter()
             .find(|task| task.name() == name)
-            .ok_or_else(|| anyhow::anyhow!("unknown task: {name}"))?;
+            .ok_or_else(|| anyhow::anyhow!("未知爬虫任务: {name}"))?;
 
         task.run(ctx).await?;
         update_last_crawler_at().await?;
@@ -39,26 +39,20 @@ impl TaskRegistry {
     }
 
     pub async fn run_all(&self, ctx: Arc<CrawlerContext>) -> Result<()> {
-        let mut jobs = JoinSet::new();
-
-        for task in &self.tasks {
-            let task = Arc::clone(task);
-            let ctx = Arc::clone(&ctx);
-            let task_name = task.name();
-
-            jobs.spawn(async move { (task_name, task.run(&ctx).await) });
-        }
-
         let mut failures = Vec::new();
 
-        while let Some(result) = jobs.join_next().await {
-            match result {
-                Ok((_, Ok(()))) => {}
-                Ok((task_name, Err(err))) => {
-                    failures.push(format!("{task_name}: {err:#}"));
+        for task in &self.tasks {
+            let task_name = task.name();
+            info!(task = task_name, "爬虫任务开始");
+
+            match task.run(&ctx).await {
+                Ok(()) => {
+                    info!(task = task_name, "爬虫任务完成");
+                    println!("\n");
                 }
                 Err(err) => {
-                    failures.push(format!("task join failed: {err}"));
+                    error!(task = task_name, error = %err, "爬虫任务失败");
+                    failures.push(format!("{task_name}: {err:#}"));
                 }
             }
         }
@@ -67,14 +61,14 @@ impl TaskRegistry {
             update_last_crawler_at().await?;
             Ok(())
         } else {
-            bail!("crawler tasks failed:\n{}", failures.join("\n"));
+            bail!("爬虫任务执行失败:\n{}", failures.join("\n"));
         }
     }
 }
 
 async fn update_last_crawler_at() -> Result<()> {
-    let offset = FixedOffset::east_opt(8 * 3600)
-        .ok_or_else(|| anyhow::anyhow!("invalid timezone offset"))?;
+    let offset =
+        FixedOffset::east_opt(8 * 3600).ok_or_else(|| anyhow::anyhow!("无效的时区偏移"))?;
     let value = Utc::now()
         .with_timezone(&offset)
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);

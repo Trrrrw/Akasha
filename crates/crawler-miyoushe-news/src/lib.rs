@@ -37,35 +37,20 @@ impl CrawlerTask for NewsMiyousheTask {
         })
         .await?;
 
-        let mut jobs = tokio::task::JoinSet::new();
         for game in Game::ALL {
             let source = self.name();
-            jobs.spawn(async move {
-                let result = crawl_game(source, game).await;
-                (game, result)
-            });
-        }
-        let mut failures = Vec::new();
-        while let Some(result) = jobs.join_next().await {
-            match result {
-                Ok((_, Ok(()))) => {}
-                Ok((game, Err(err))) => {
-                    failures.push(format!("{game}: {err:#}"));
-                }
-                Err(err) => {
-                    failures.push(format!("miyoushe join failed: {err}"));
-                }
+            if let Err(err) = crawl_game(source, game).await {
+                anyhow::bail!("米游社爬虫执行失败:\n{game}: {err:#}");
             }
         }
-        if failures.is_empty() {
-            Ok(())
-        } else {
-            anyhow::bail!("miyoushe failed:\n{}", failures.join("\n"));
-        }
+
+        Ok(())
     }
 }
 
 async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
+    info!("米游社-{}-爬取开始", game.name_zh());
+
     games::Entity::create_if_not_exists(games::Model {
         game_code: game.to_string(),
         name_en: game.name_en().to_string(),
@@ -90,26 +75,21 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
         index: i32::MAX,
     })
     .await?;
-    info!("{} -> 已初始化米游社分类", game.name_zh());
 
     let page_size: u32 = 20;
+    let mut fetched_pages = 0u32;
+    let mut saved_items = 0u32;
     for news_type in 1..4 {
         let mut last_id: u32 = page_size;
         let mut found_existing = false;
         loop {
-            info!(
-                "{} -> 正在爬取米游社 type={news_type} page={} last_id={last_id} page_size={page_size}",
-                game.name_zh(),
-                last_id / page_size
-            );
-
             let params = game.api_params(&last_id, &page_size, &news_type);
             let single_page_data: MiyousheResponse =
                 match core_http::get(Game::API_BASE, &params).await {
                     Ok(Some(data)) => data,
                     Ok(None) => {
                         warn!(
-                            "{game} -> 获取第 {} 页数据失败，返回空数据，重试中...",
+                            "米游社-{game}-获取第 {} 页数据失败，返回空数据，重试中...",
                             last_id / page_size
                         );
                         tokio::time::sleep(Duration::from_secs(3)).await;
@@ -117,7 +97,7 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                     }
                     Err(err) => {
                         warn!(
-                            "{game} -> 获取第 {} 页数据失败，重试中...{err:#}",
+                            "米游社-{game}-获取第 {} 页数据失败，重试中...{err:#}",
                             last_id / page_size
                         );
                         tokio::time::sleep(Duration::from_secs(3)).await;
@@ -127,8 +107,9 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
             if single_page_data.data.list.is_empty() {
                 break;
             }
+            fetched_pages += 1;
             info!(
-                "{} -> 成功获取米游社 type={news_type} page={}，{} 条",
+                "米游社-{}-成功获取类型 {news_type} 第 {} 页，{} 条",
                 game.name_zh(),
                 last_id / page_size,
                 single_page_data.data.list.len()
@@ -141,7 +122,7 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                     .is_some()
                 {
                     info!(
-                        "{} -> 已找到本地已有文章:《{}》",
+                        "米游社-{}-已找到本地已有文章:《{}》",
                         game.name_zh(),
                         post.post.title,
                     );
@@ -149,19 +130,26 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                     break;
                 }
                 parse_and_save(&post.post, game, source).await?;
+                saved_items += 1;
             }
             if found_existing {
                 break;
             }
 
             if single_page_data.data.last_id.is_empty() {
-                info!("{} -> 米游社 type={news_type} 已无下一页", game.name_zh());
+                info!("米游社-{}-类型 {news_type} 已无下一页", game.name_zh());
                 break;
             }
             last_id = single_page_data.data.last_id.parse().unwrap();
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
+
+    info!(
+        "米游社-{}-爬取完成，页数={fetched_pages}，新增={saved_items}",
+        game.name_zh()
+    );
+
     Ok(())
 }
 
@@ -169,7 +157,7 @@ async fn parse_and_save(post: &MiyoushePost, game: Game, source: &'static str) -
     let post_data: PostResponse = http::get(game.post_api_url(&post.remote_id)).await?;
     let Some(post_data_detail) = post_data.data.as_ref() else {
         anyhow::bail!(
-            "米游社详情接口返回 retcode={} message=\"{}\" post_id={}",
+            "米游社详情接口返回异常，返回码={}，消息=\"{}\"，帖子ID={}",
             post_data.retcode,
             post_data.message,
             post.remote_id
@@ -177,9 +165,10 @@ async fn parse_and_save(post: &MiyoushePost, game: Game, source: &'static str) -
     };
     let detail = &post_data_detail.post;
     let detail_post = &detail.post;
-    let remote_id = detail_post.remote_id.parse::<i32>().map_err(|err| {
-        anyhow::anyhow!("invalid miyoushe post_id {}: {err}", detail_post.remote_id)
-    })?;
+    let remote_id = detail_post
+        .remote_id
+        .parse::<i32>()
+        .map_err(|err| anyhow::anyhow!("无效的米游社帖子 ID {}: {err}", detail_post.remote_id))?;
     let content = &detail_post.content;
     let video_url = extract_video_url(&detail.vod_list);
     let is_video =
@@ -212,12 +201,6 @@ async fn parse_and_save(post: &MiyoushePost, game: Game, source: &'static str) -
         })
         .await?;
     }
-
-    info!(
-        "{} -> 已保存米游社帖子:《{}》",
-        game.name_zh(),
-        detail_post.title
-    );
 
     Ok(())
 }
@@ -364,9 +347,9 @@ where
 {
     let ts = i64::deserialize(deserializer)?;
     let utc = DateTime::<Utc>::from_timestamp(ts, 0)
-        .ok_or_else(|| serde::de::Error::custom("invalid unix timestamp"))?;
+        .ok_or_else(|| serde::de::Error::custom("无效的 Unix 时间戳"))?;
     let offset = FixedOffset::east_opt(8 * 3600)
-        .ok_or_else(|| serde::de::Error::custom("invalid timezone offset"))?;
+        .ok_or_else(|| serde::de::Error::custom("无效的时区偏移"))?;
 
     Ok(utc.with_timezone(&offset))
 }

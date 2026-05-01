@@ -1,0 +1,40 @@
+services:
+  postgres:
+    container_name: Akasha-postgres
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "fill-postgres-user"
+      POSTGRES_PASSWORD: "fill-postgres-password"
+      POSTGRES_DB: "Akasha"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
+  Akasha:
+    container_name: Akasha
+    image: akasha:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "7040:7040"
+    environment:
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: "fill-postgres-user"
+      POSTGRES_PASSWORD: "fill-postgres-password"
+      POSTGRES_DB: "Akasha"
+
+  crawler:
+    container_name: Akasha-crawler
+    image: akasha-crawler:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: "fill-postgres-user"
+      POSTGRES_PASSWORD: "fill-postgres-password"
+      POSTGRES_DB: "Akasha"
+      MIYOUSHE_COOKIE: "fill-miyoushe-cookie"

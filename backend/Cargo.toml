@@ -13,11 +13,12 @@ chrono = "0.4.44"
 db = { path = "../crates/db" }
 rss = "2"
 sea-orm = { version = "2.0.0-rc", features = [
-    "sqlx-sqlite",
+    "sqlx-postgres",
     "runtime-tokio-rustls",
 ] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sysinfo = "0.37.2"
 tokio = { workspace = true }
 tower-http = { version = "0.6.8", features = ["trace"] }
 tracing = { workspace = true }

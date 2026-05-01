@@ -23,7 +23,7 @@ where
         .await?;
 
     let data = serde_json::from_str::<T>(&text)
-        .map_err(|err| anyhow::anyhow!("json decode failed: {err}; body: {text}"))?;
+        .map_err(|err| anyhow::anyhow!("JSON 解析失败: {err}; 响应内容: {text}"))?;
 
     Ok(data)
 }

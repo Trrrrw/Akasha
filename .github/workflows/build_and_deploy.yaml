@@ -79,19 +79,25 @@ jobs:
             docker stop Akasha-crawler || true
             docker rm Akasha-crawler || true
 
-            mkdir -p /root/Trrrrw/akasha/data
-
             docker run -d \
               --name Akasha \
               --restart unless-stopped \
               -p 7040:7040 \
-              -v /root/Trrrrw/akasha/data:/app/data \
+              -e POSTGRES_HOST='1Panel-postgresql-Z9kn' \
+              -e POSTGRES_PORT='5432' \
+              -e POSTGRES_USER='${{ secrets.POSTGRES_USER }}' \
+              -e POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}' \
+              -e POSTGRES_DB='Akasha' \
               ghcr.io/trrrrw/akasha:latest
 
             docker run -d \
               --name Akasha-crawler \
               --restart unless-stopped \
-              -v /root/Trrrrw/akasha/data:/app/data \
+              -e POSTGRES_HOST='1Panel-postgresql-Z9kn' \
+              -e POSTGRES_PORT='5432' \
+              -e POSTGRES_USER='${{ secrets.POSTGRES_USER }}' \
+              -e POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}' \
+              -e POSTGRES_DB='Akasha' \
               -e MIYOUSHE_COOKIE='${{ secrets.MIYOUSHE_COOKIE }}' \
               ghcr.io/trrrrw/akasha-crawler:latest
 
