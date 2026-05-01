@@ -1,0 +1,17 @@
+[package]
+name = "crawler-core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+db = { path = "../db" }
+reqwest = { version = "0.13.3", features = ["json", "query"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+strum = { version = "0.28.0", features = ["derive"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

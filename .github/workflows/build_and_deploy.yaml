@@ -1,0 +1,98 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'backend/**'
+      - 'crawler/**'
+      - 'crates/**'
+      - '.github/workflows/build_and_deploy.yaml'
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'backend/**'
+      - 'crawler/**'
+      - 'crates/**'
+      - '.github/workflows/build_and_deploy.yaml'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Akasha
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: akasha
+          push: ${{ github.event_name == 'push' }}
+          tags: ghcr.io/trrrrw/akasha:latest
+
+      - name: Build and push crawler
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: crawler
+          push: ${{ github.event_name == 'push' }}
+          tags: ghcr.io/trrrrw/akasha-crawler:latest
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_IP }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 40m
+          script: |
+            docker pull ghcr.io/trrrrw/akasha:latest
+            docker pull ghcr.io/trrrrw/akasha-crawler:latest
+
+            docker stop Akasha || true
+            docker rm Akasha || true
+            docker stop Akasha-crawler || true
+            docker rm Akasha-crawler || true
+
+            mkdir -p /root/Trrrrw/akasha/data
+
+            docker run -d \
+              --name Akasha \
+              --restart unless-stopped \
+              -p 7040:7040 \
+              -v /root/Trrrrw/akasha/data:/app/data \
+              ghcr.io/trrrrw/akasha:latest
+
+            docker run -d \
+              --name Akasha-crawler \
+              --restart unless-stopped \
+              -v /root/Trrrrw/akasha/data:/app/data \
+              -e MIYOUSHE_COOKIE='${{ secrets.MIYOUSHE_COOKIE }}' \
+              ghcr.io/trrrrw/akasha-crawler:latest
+
+            docker image prune -af || true

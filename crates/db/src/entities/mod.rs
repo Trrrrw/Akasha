@@ -1,0 +1,11 @@
+pub mod game_characters;
+pub mod game_events;
+pub mod games;
+pub mod meta;
+pub mod news_categories;
+pub mod news_categories_link;
+pub mod news_items;
+pub mod news_search;
+pub mod news_sources;
+pub mod news_tags_link;
+pub mod tags;

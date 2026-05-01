@@ -1,0 +1,11 @@
+[package]
+name = "crawler-demo"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+crawler-core = { path = "../crawler-core" }

@@ -1,0 +1,16 @@
+[package]
+name = "db"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sea-orm = { version = "2.0.0-rc", features = [
+    "sqlx-sqlite",
+    "runtime-tokio-rustls",
+    "schema-sync",
+    "entity-registry",
+    "macros"
+] }
+tokio = { workspace = true }
