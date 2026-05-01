@@ -7,8 +7,13 @@ use chrono::{DateTime, FixedOffset};
 use db::entities::{
     games, news_categories, news_categories_link, news_items, news_tags_link, tags,
 };
-use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, FromQueryResult, Order, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::{IntoParams, ToSchema};
 
 use axum_mcp::{MCPInputSchema, mcp};
@@ -34,6 +39,11 @@ pub async fn news_items(
     Query(query): Query<NewsItemsQuery>,
 ) -> Result<Json<NewsItemsResponse>, (StatusCode, Json<NewsErrorResponse>)> {
     let conn = db::pool();
+    let page = query.page.unwrap_or(DEFAULT_PAGE).max(1);
+    let page_size = query
+        .page_size
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
     let mut statement = news_items::Entity::find();
 
     if let Some(game_code) = resolve_optional_game(query.game.as_deref())
@@ -43,11 +53,8 @@ pub async fn news_items(
         statement = statement.filter(news_items::Column::GameCode.eq(game_code));
     } else if query.game.is_some() {
         return Ok(Json(NewsItemsResponse {
-            page: query.page.unwrap_or(DEFAULT_PAGE).max(1),
-            page_size: query
-                .page_size
-                .unwrap_or(DEFAULT_PAGE_SIZE)
-                .clamp(1, MAX_PAGE_SIZE),
+            page,
+            page_size,
             total: 0,
             items: Vec::new(),
         }));
@@ -61,51 +68,79 @@ pub async fn news_items(
         statement = statement.filter(news_items::Column::IsVideo.eq(is_video));
     }
 
-    let mut news = statement
+    if let Some(category) = &query.category {
+        statement = statement.filter(Expr::cust_with_values(
+            r#"EXISTS (
+                SELECT 1
+                FROM news_categories_link AS ncl
+                WHERE ncl.news_remote_id = news_items.remote_id
+                    AND ncl.news_game_belong = news_items.game_code
+                    AND ncl.news_source_belong = news_items.source
+                    AND ncl.category_title = ?
+            )"#,
+            [category.to_owned()],
+        ));
+    }
+
+    if let Some(tag) = &query.tag {
+        statement = statement.filter(Expr::cust_with_values(
+            r#"EXISTS (
+                SELECT 1
+                FROM news_tags_link AS ntl
+                WHERE ntl.news_remote_id = news_items.remote_id
+                    AND ntl.news_game_belong = news_items.game_code
+                    AND ntl.news_source_belong = news_items.source
+                    AND ntl.tag_title = ?
+            )"#,
+            [tag.to_owned()],
+        ));
+    }
+
+    let total = statement
+        .clone()
+        .count(conn)
+        .await
+        .map_err(internal_error)?;
+    let offset = (page - 1) * page_size;
+    let news = statement
+        .select_only()
+        .column(news_items::Column::RemoteId)
+        .column(news_items::Column::GameCode)
+        .column(news_items::Column::Source)
+        .column(news_items::Column::Title)
+        .column(news_items::Column::Intro)
+        .column(news_items::Column::PublishTime)
+        .column(news_items::Column::SourceUrl)
+        .column(news_items::Column::Cover)
+        .column(news_items::Column::IsVideo)
+        .column(news_items::Column::VideoUrl)
         .order_by(news_items::Column::PublishTime, Order::Desc)
+        .offset(offset)
+        .limit(page_size)
+        .into_model::<NewsItemListRow>()
         .all(conn)
         .await
         .map_err(internal_error)?;
 
-    let mut items = Vec::new();
-
-    for item in news.drain(..) {
-        let categories = load_categories(&item).await.map_err(internal_error)?;
-        if let Some(category) = &query.category
-            && !categories.iter().any(|value| value == category)
-        {
-            continue;
-        }
-
-        let tags = load_tags(&item).await.map_err(internal_error)?;
-        if let Some(tag) = &query.tag
-            && !tags.iter().any(|value| value == tag)
-        {
-            continue;
-        }
-
-        items.push(to_summary(item, categories, tags));
-    }
-
-    let total = items.len() as u64;
-    let page = query.page.unwrap_or(DEFAULT_PAGE).max(1);
-    let page_size = query
-        .page_size
-        .unwrap_or(DEFAULT_PAGE_SIZE)
-        .clamp(1, MAX_PAGE_SIZE);
-    let start = ((page - 1) * page_size) as usize;
-    let end = (start + page_size as usize).min(items.len());
-    let data = if start < items.len() {
-        items[start..end].to_vec()
-    } else {
-        Vec::new()
-    };
+    let categories = load_categories_for_items(&news)
+        .await
+        .map_err(internal_error)?;
+    let tags = load_tags_for_items(&news).await.map_err(internal_error)?;
+    let items = news
+        .into_iter()
+        .map(|item| {
+            let key = item.key();
+            let categories = categories.get(&key).cloned().unwrap_or_default();
+            let tags = tags.get(&key).cloned().unwrap_or_default();
+            item.to_summary(categories, tags)
+        })
+        .collect();
 
     Ok(Json(NewsItemsResponse {
         page,
         page_size,
         total,
-        items: data,
+        items,
     }))
 }
 
@@ -275,6 +310,137 @@ pub(super) async fn load_tags(item: &news_items::Model) -> Result<Vec<String>, s
     Ok(values)
 }
 
+async fn load_categories_for_items(
+    items: &[NewsItemListRow],
+) -> Result<HashMap<NewsItemKey, Vec<String>>, sea_orm::DbErr> {
+    if items.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let links = news_categories_link::Entity::find()
+        .filter(link_key_condition(
+            items,
+            news_categories_link::Column::NewsRemoteId,
+            news_categories_link::Column::NewsGameBelong,
+            news_categories_link::Column::NewsSourceBelong,
+        ))
+        .all(db::pool())
+        .await?;
+
+    let mut values = HashMap::<NewsItemKey, Vec<String>>::new();
+    for link in links {
+        values
+            .entry(NewsItemKey {
+                remote_id: link.news_remote_id,
+                game_code: link.news_game_belong,
+                source: link.news_source_belong,
+            })
+            .or_default()
+            .push(link.category_title);
+    }
+
+    Ok(values)
+}
+
+async fn load_tags_for_items(
+    items: &[NewsItemListRow],
+) -> Result<HashMap<NewsItemKey, Vec<String>>, sea_orm::DbErr> {
+    if items.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let links = news_tags_link::Entity::find()
+        .filter(link_key_condition(
+            items,
+            news_tags_link::Column::NewsRemoteId,
+            news_tags_link::Column::NewsGameBelong,
+            news_tags_link::Column::NewsSourceBelong,
+        ))
+        .all(db::pool())
+        .await?;
+
+    let mut values = HashMap::<NewsItemKey, Vec<String>>::new();
+    for link in links {
+        values
+            .entry(NewsItemKey {
+                remote_id: link.news_remote_id,
+                game_code: link.news_game_belong,
+                source: link.news_source_belong,
+            })
+            .or_default()
+            .push(link.tag_title);
+    }
+
+    Ok(values)
+}
+
+fn link_key_condition<C>(
+    items: &[NewsItemListRow],
+    remote_id_column: C,
+    game_code_column: C,
+    source_column: C,
+) -> Condition
+where
+    C: ColumnTrait,
+{
+    items.iter().fold(Condition::any(), |condition, item| {
+        condition.add(
+            Condition::all()
+                .add(remote_id_column.eq(&item.remote_id))
+                .add(game_code_column.eq(&item.game_code))
+                .add(source_column.eq(&item.source)),
+        )
+    })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct NewsItemKey {
+    remote_id: String,
+    game_code: String,
+    source: String,
+}
+
+#[derive(Clone, FromQueryResult)]
+struct NewsItemListRow {
+    remote_id: String,
+    game_code: String,
+    source: String,
+    title: String,
+    intro: Option<String>,
+    publish_time: DateTime<FixedOffset>,
+    source_url: String,
+    cover: String,
+    is_video: bool,
+    video_url: Option<String>,
+}
+
+impl NewsItemListRow {
+    fn key(&self) -> NewsItemKey {
+        NewsItemKey {
+            remote_id: self.remote_id.clone(),
+            game_code: self.game_code.clone(),
+            source: self.source.clone(),
+        }
+    }
+
+    fn to_summary(self, categories: Vec<String>, tags: Vec<String>) -> NewsItemSummary {
+        NewsItemSummary {
+            remote_id: self.remote_id,
+            game_code: self.game_code,
+            source: self.source,
+            title: self.title,
+            intro: self.intro,
+            publish_time: format_datetime(self.publish_time),
+            source_url: self.source_url,
+            cover: self.cover,
+            is_video: self.is_video,
+            video_url: self.video_url,
+            categories,
+            tags,
+        }
+    }
+}
+
 pub(super) fn to_summary(
     item: news_items::Model,
     categories: Vec<String>,
@@ -336,7 +502,7 @@ pub struct NewsItemsQuery {
     source: Option<String>,
     /// 程序自动分类名称。
     category: Option<String>,
-    /// 人工标签名称。
+    /// 人工标签名称，以category为主，tag只做辅助用，大部分为空。
     tag: Option<String>,
     /// 按新闻视频类型筛选；true 表示只返回视频新闻，false 表示只返回非视频新闻。
     is_video: Option<bool>,

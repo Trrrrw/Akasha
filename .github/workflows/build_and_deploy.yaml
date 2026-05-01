@@ -82,6 +82,7 @@ jobs:
             docker run -d \
               --name Akasha \
               --restart unless-stopped \
+              --network 1panel-network \
               -p 7040:7040 \
               -e POSTGRES_HOST='1Panel-postgresql-Z9kn' \
               -e POSTGRES_PORT='5432' \
@@ -93,6 +94,7 @@ jobs:
             docker run -d \
               --name Akasha-crawler \
               --restart unless-stopped \
+              --network 1panel-network \
               -e POSTGRES_HOST='1Panel-postgresql-Z9kn' \
               -e POSTGRES_PORT='5432' \
               -e POSTGRES_USER='${{ secrets.POSTGRES_USER }}' \

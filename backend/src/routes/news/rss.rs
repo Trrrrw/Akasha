@@ -59,7 +59,7 @@ pub async fn news_rss(
             item_builder.description(Some(intro));
         }
 
-        for category in categories.into_iter().chain(tags.into_iter()) {
+        for category in categories.into_iter().chain(tags) {
             item_builder.category(category.into());
         }
 
