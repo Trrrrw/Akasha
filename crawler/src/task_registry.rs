@@ -4,9 +4,8 @@ use db::entities::meta;
 use std::sync::Arc;
 use tracing::{error, info};
 
+use super::tasks;
 use crawler_core::{CrawlerContext, CrawlerTask};
-use crawler_miyoushe_news::NewsMiyousheTask;
-use crawler_official_site_news::NewsOfficialSiteTask;
 
 const LAST_CRAWLER_AT_KEY: &str = "last_crawler_at";
 
@@ -17,12 +16,21 @@ pub struct TaskRegistry {
 impl TaskRegistry {
     pub fn new() -> Self {
         Self {
-            tasks: vec![Arc::new(NewsOfficialSiteTask), Arc::new(NewsMiyousheTask)],
+            tasks: tasks::get(),
         }
     }
 
-    pub fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.tasks.iter().map(|task| task.name())
+    pub fn infos(&self) -> Vec<Vec<String>> {
+        self.tasks
+            .iter()
+            .map(|task| {
+                vec![
+                    task.name().to_string(),
+                    task.display_name().to_string(),
+                    task.description().to_string(),
+                ]
+            })
+            .collect()
     }
 
     pub async fn run(&self, name: &str, ctx: &CrawlerContext) -> Result<()> {
@@ -39,21 +47,36 @@ impl TaskRegistry {
     }
 
     pub async fn run_all(&self, ctx: Arc<CrawlerContext>) -> Result<()> {
+        let mut tasks = tokio::task::JoinSet::new();
         let mut failures = Vec::new();
 
         for task in &self.tasks {
+            let task = Arc::clone(task);
+            let ctx = Arc::clone(&ctx);
             let task_name = task.name();
-            info!(task = task_name, "爬虫任务开始");
 
-            match task.run(&ctx).await {
-                Ok(()) => {
-                    info!(task = task_name, "爬虫任务完成");
-                    println!("\n");
+            tasks.spawn(async move {
+                info!(task = task_name, "爬虫任务开始");
+
+                match task.run(&ctx).await {
+                    Ok(()) => {
+                        info!(task = task_name, "爬虫任务完成");
+                        println!("\n");
+                        Ok(())
+                    }
+                    Err(err) => {
+                        error!(task = task_name, error = %err, "爬虫任务失败");
+                        Err(format!("{task_name}: {err:#}"))
+                    }
                 }
-                Err(err) => {
-                    error!(task = task_name, error = %err, "爬虫任务失败");
-                    failures.push(format!("{task_name}: {err:#}"));
-                }
+            });
+        }
+
+        while let Some(result) = tasks.join_next().await {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => failures.push(err),
+                Err(err) => failures.push(format!("tokio task join error: {err}")),
             }
         }
 

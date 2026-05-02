@@ -1,3 +1,5 @@
+pub mod admin;
+pub mod characters;
 pub mod games;
 pub mod mcp;
 pub mod news;

@@ -40,7 +40,7 @@ impl CrawlerTask for NewsMiyousheTask {
         for game in Game::ALL {
             let source = self.name();
             if let Err(err) = crawl_game(source, game).await {
-                anyhow::bail!("米游社爬虫执行失败:\n{game}: {err:#}");
+                anyhow::bail!("{source}爬虫执行失败:\n{game}: {err:#}");
             }
         }
 
@@ -49,7 +49,7 @@ impl CrawlerTask for NewsMiyousheTask {
 }
 
 async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
-    info!("米游社-{}-爬取开始", game.name_zh());
+    info!(game = game.name_zh(), source = source, "爬取开始");
 
     games::Entity::create_if_not_exists(games::Model {
         game_code: game.to_string(),
@@ -89,16 +89,23 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                     Ok(Some(data)) => data,
                     Ok(None) => {
                         warn!(
-                            "米游社-{game}-获取第 {} 页数据失败，返回空数据，重试中...",
-                            last_id / page_size
+                            game = game.name_zh(),
+                            source = source,
+                            news_type = news_type,
+                            page = last_id / page_size,
+                            "获取页面数据失败，返回空数据，重试中"
                         );
                         tokio::time::sleep(Duration::from_secs(3)).await;
                         continue;
                     }
                     Err(err) => {
                         warn!(
-                            "米游社-{game}-获取第 {} 页数据失败，重试中...{err:#}",
-                            last_id / page_size
+                            game = game.name_zh(),
+                            source = source,
+                            news_type = news_type,
+                            page = last_id / page_size,
+                            error = %err,
+                            "获取页面数据失败，重试中"
                         );
                         tokio::time::sleep(Duration::from_secs(3)).await;
                         continue;
@@ -109,10 +116,12 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
             }
             fetched_pages += 1;
             info!(
-                "米游社-{}-成功获取类型 {news_type} 第 {} 页，{} 条",
-                game.name_zh(),
-                last_id / page_size,
-                single_page_data.data.list.len()
+                game = game.name_zh(),
+                source = source,
+                news_type = news_type,
+                page = last_id / page_size,
+                item_count = single_page_data.data.list.len(),
+                "成功获取页面"
             );
 
             for post in single_page_data.data.list {
@@ -122,14 +131,16 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                     .is_some()
                 {
                     info!(
-                        "米游社-{}-已找到本地已有文章:《{}》",
-                        game.name_zh(),
-                        post.post.title,
+                        game = game.name_zh(),
+                        source = source,
+                        title = post.post.title,
+                        "已找到本地已有文章"
                     );
                     found_existing = true;
                     break;
                 }
                 parse_and_save(&post.post, game, source).await?;
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 saved_items += 1;
             }
             if found_existing {
@@ -137,17 +148,29 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
             }
 
             if single_page_data.data.last_id.is_empty() {
-                info!("米游社-{}-类型 {news_type} 已无下一页", game.name_zh());
+                info!(
+                    game = game.name_zh(),
+                    source = source,
+                    news_type = news_type,
+                    "已无下一页"
+                );
                 break;
             }
-            last_id = single_page_data.data.last_id.parse().unwrap();
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            last_id = single_page_data.data.last_id.parse().map_err(|err| {
+                anyhow::anyhow!(
+                    "无效的米游社分页 last_id {}: {err}",
+                    single_page_data.data.last_id
+                )
+            })?;
         }
     }
 
     info!(
-        "米游社-{}-爬取完成，页数={fetched_pages}，新增={saved_items}",
-        game.name_zh()
+        game = game.name_zh(),
+        source = source,
+        fetched_pages = fetched_pages,
+        saved_items = saved_items,
+        "爬取完成"
     );
 
     Ok(())

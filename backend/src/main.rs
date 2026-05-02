@@ -16,6 +16,7 @@ async fn main() {
     let (api_router, mut api) = OpenApiRouter::new()
         .merge(routes::root::router())
         .merge(routes::games::router())
+        .merge(routes::characters::router())
         .merge(routes::news::router())
         .merge(routes::system::router())
         .split_for_parts();
@@ -23,6 +24,7 @@ async fn main() {
 
     let app = Router::new()
         .merge(api_router)
+        .merge(routes::admin::router())
         .merge(routes::scalar::router(api))
         .merge(routes::mcp::router())
         .layer(

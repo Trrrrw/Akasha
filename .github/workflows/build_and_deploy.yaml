@@ -1,106 +1,128 @@
 name: Build and Deploy
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'Dockerfile'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'backend/**'
-      - 'crawler/**'
-      - 'crates/**'
-      - '.github/workflows/build_and_deploy.yaml'
-  pull_request:
-    paths:
-      - 'Dockerfile'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'backend/**'
-      - 'crawler/**'
-      - 'crates/**'
-      - '.github/workflows/build_and_deploy.yaml'
+    push:
+        branches:
+            - main
+        paths:
+            - "Dockerfile"
+            - "Cargo.toml"
+            - "Cargo.lock"
+            - "backend/**"
+            - "crawler/**"
+            - "crates/**"
+            - ".github/workflows/build_and_deploy.yaml"
+    pull_request:
+        paths:
+            - "Dockerfile"
+            - "Cargo.toml"
+            - "Cargo.lock"
+            - "backend/**"
+            - "crawler/**"
+            - "crates/**"
+            - ".github/workflows/build_and_deploy.yaml"
 
 permissions:
-  contents: read
-  packages: write
+    contents: read
+    packages: write
+
+env:
+    ALIYUN_REGISTRY: crpi-73ao84573omk8qlo.cn-hangzhou.personal.cr.aliyuncs.com
+    ALIYUN_NAMESPACE: akasha
+    AKASHA_IMAGE_NAME: akasha
+    CRAWLER_IMAGE_NAME: akasha-crawler
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
-        if: github.event_name == 'push'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+            - name: Login to GitHub Container Registry
+              if: github.event_name == 'push'
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.repository_owner }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Akasha
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: akasha
-          push: ${{ github.event_name == 'push' }}
-          tags: ghcr.io/trrrrw/akasha:latest
+            - name: Login to Alibaba Cloud ACR
+              if: github.event_name == 'push'
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.ALIYUN_REGISTRY }}
+                  username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+                  password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
 
-      - name: Build and push crawler
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: crawler
-          push: ${{ github.event_name == 'push' }}
-          tags: ghcr.io/trrrrw/akasha-crawler:latest
+            - name: Build and push Akasha
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  target: akasha
+                  push: ${{ github.event_name == 'push' }}
+                  tags: |
+                      ghcr.io/trrrrw/${{ env.AKASHA_IMAGE_NAME }}:latest
+                      ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.AKASHA_IMAGE_NAME }}:latest
 
-  deploy:
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+            - name: Build and push crawler
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  target: crawler
+                  push: ${{ github.event_name == 'push' }}
+                  tags: |
+                      ghcr.io/trrrrw/${{ env.CRAWLER_IMAGE_NAME }}:latest
+                      ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.CRAWLER_IMAGE_NAME }}:latest
 
-    steps:
-      - name: Deploy to Server
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_IP }}
-          port: ${{ secrets.SSH_PORT }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 40m
-          script: |
-            docker pull ghcr.io/trrrrw/akasha:latest
-            docker pull ghcr.io/trrrrw/akasha-crawler:latest
+    deploy:
+        needs: build
+        if: github.ref == 'refs/heads/main'
+        runs-on: ubuntu-latest
 
-            docker stop Akasha || true
-            docker rm Akasha || true
-            docker stop Akasha-crawler || true
-            docker rm Akasha-crawler || true
+        steps:
+            - name: Deploy to Server
+              uses: appleboy/ssh-action@v1
+              with:
+                  host: ${{ secrets.SSH_IP }}
+                  port: ${{ secrets.SSH_PORT }}
+                  username: ${{ secrets.SSH_USER }}
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  command_timeout: 40m
+                  script: |
+                      docker login --username=${{ secrets.ALIYUN_REGISTRY_USERNAME }} \
+                        --password=${{ secrets.ALIYUN_REGISTRY_PASSWORD }} \
+                        ${{ env.ALIYUN_REGISTRY }}
 
-            docker run -d \
-              --name Akasha \
-              --restart unless-stopped \
-              --network 1panel-network \
-              -p 7040:7040 \
-              -e POSTGRES_HOST='1Panel-postgresql-Z9kn' \
-              -e POSTGRES_PORT='5432' \
-              -e POSTGRES_USER='${{ secrets.POSTGRES_USER }}' \
-              -e POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}' \
-              -e POSTGRES_DB='Akasha' \
-              ghcr.io/trrrrw/akasha:latest
+                      docker pull ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.AKASHA_IMAGE_NAME }}:latest
+                      docker pull ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.CRAWLER_IMAGE_NAME }}:latest
 
-            docker run -d \
-              --name Akasha-crawler \
-              --restart unless-stopped \
-              --network 1panel-network \
-              -e POSTGRES_HOST='1Panel-postgresql-Z9kn' \
-              -e POSTGRES_PORT='5432' \
-              -e POSTGRES_USER='${{ secrets.POSTGRES_USER }}' \
-              -e POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}' \
-              -e POSTGRES_DB='Akasha' \
-              -e MIYOUSHE_COOKIE='${{ secrets.MIYOUSHE_COOKIE }}' \
-              ghcr.io/trrrrw/akasha-crawler:latest
+                      docker stop Akasha || true
+                      docker rm Akasha || true
+                      docker stop Akasha-crawler || true
+                      docker rm Akasha-crawler || true
 
-            docker image prune -af || true
+                      docker run -d \
+                        --name Akasha \
+                        --restart unless-stopped \
+                        --network 1panel-network \
+                        -p 7040:7040 \
+                        -e POSTGRES_HOST='1Panel-postgresql-Z9kn' \
+                        -e POSTGRES_PORT='5432' \
+                        -e POSTGRES_USER='${{ secrets.POSTGRES_USER }}' \
+                        -e POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}' \
+                        -e POSTGRES_DB='Akasha' \
+                        ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.AKASHA_IMAGE_NAME }}:latest
+
+                      docker run -d \
+                        --name Akasha-crawler \
+                        --restart unless-stopped \
+                        --network 1panel-network \
+                        -e POSTGRES_HOST='1Panel-postgresql-Z9kn' \
+                        -e POSTGRES_PORT='5432' \
+                        -e POSTGRES_USER='${{ secrets.POSTGRES_USER }}' \
+                        -e POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}' \
+                        -e POSTGRES_DB='Akasha' \
+                        -e MIYOUSHE_COOKIE='${{ secrets.MIYOUSHE_COOKIE }}' \
+                        ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.CRAWLER_IMAGE_NAME }}:latest
+
+                      docker image prune -af || true

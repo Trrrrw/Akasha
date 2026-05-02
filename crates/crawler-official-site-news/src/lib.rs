@@ -40,7 +40,7 @@ impl CrawlerTask for NewsOfficialSiteTask {
         for game in Game::ALL {
             let source = self.name();
             if let Err(err) = crawl_game(source, game).await {
-                anyhow::bail!("官网爬虫执行失败:\n{game}: {err:#}");
+                anyhow::bail!("{source}爬虫执行失败:\n{game}: {err:#}");
             }
         }
 
@@ -48,8 +48,9 @@ impl CrawlerTask for NewsOfficialSiteTask {
     }
 }
 
+/// 爬取单个游戏
 async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
-    info!("官网-{}-爬取开始", game.name_zh());
+    info!(game = game.name_zh(), source = source, "爬取开始");
 
     games::Entity::create_if_not_exists(games::Model {
         game_code: game.to_string(),
@@ -90,15 +91,23 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
     let mut saved_items = 0u32;
     while page_total == 0 || page_num <= page_total {
         info!(
-            "官网-{}-正在爬取第 {page_num}/{page_total} 页",
-            game.name_zh()
+            game = game.name_zh(),
+            source = source,
+            page_num = page_num,
+            page_total = page_total,
+            "正在爬取页面"
         );
 
         let single_page_data: OfficialSiteResponse =
             match http::get(game.api_base(), &game.api_params(page_num)).await {
                 Ok(Some(data)) => data,
                 _ => {
-                    warn!("官网-{game}-获取第 {page_num} 页数据失败，重试中...");
+                    warn!(
+                        game = game.name_zh(),
+                        source = source,
+                        page_num = page_num,
+                        "获取页面数据失败，重试中"
+                    );
                     tokio::time::sleep(Duration::from_secs(3)).await;
                     continue;
                 }
@@ -111,9 +120,10 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
             let news_remote_id = news.id.to_string();
             if news_remote_id == local_latest_news_remote_id {
                 info!(
-                    "官网-{}-已找到本地最新文章:《{}》",
-                    game.name_zh(),
-                    news.title
+                    game = game.name_zh(),
+                    source = source,
+                    title = news.title,
+                    "已找到本地最新文章"
                 );
                 found_existing = true;
                 break;
@@ -130,8 +140,11 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
     }
 
     info!(
-        "官网-{}-爬取完成，页数={fetched_pages}，新增={saved_items}",
-        game.name_zh()
+        game = game.name_zh(),
+        source = source,
+        fetched_pages = fetched_pages,
+        saved_items = saved_items,
+        "爬取完成"
     );
 
     Ok(())
@@ -175,6 +188,7 @@ async fn parse_and_save(
     Ok(())
 }
 
+/// 获取正文内容
 fn extract_intro(content: &str) -> Option<String> {
     let document = Html::parse_document(content);
     let selector = Selector::parse("p").ok()?;
@@ -218,6 +232,7 @@ fn extract_intro(content: &str) -> Option<String> {
     Some(intro)
 }
 
+/// 获取封面链接
 fn extract_cover(default_cover: &'static str, ext: &str, content: &str) -> String {
     if ext != "{}" {
         if let Ok(value) = serde_json::from_str::<Value>(ext) {
@@ -253,6 +268,7 @@ fn extract_cover(default_cover: &'static str, ext: &str, content: &str) -> Strin
     default_cover.to_string()
 }
 
+/// 获取视频链接
 fn extract_video_url(content: &str) -> Option<String> {
     let selectors = ["p video", "p span video", "div video"];
 

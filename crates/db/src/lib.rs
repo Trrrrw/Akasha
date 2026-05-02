@@ -10,12 +10,14 @@ use tracing::warn;
 
 static SEAORM_POOL: OnceLock<DatabaseConnection> = OnceLock::new();
 
+/// 初始化数据库(不建表)
 pub async fn init() {
     let pool = connect().await;
 
     SEAORM_POOL.set(pool).expect("数据库连接池应只初始化一次");
 }
 
+/// 初始化数据库(建表)
 pub async fn init_and_sync() {
     let pool = connect().await;
 
@@ -24,6 +26,7 @@ pub async fn init_and_sync() {
     SEAORM_POOL.set(pool).expect("数据库连接池应只初始化一次");
 }
 
+/// 等待数据库初始化完成
 pub async fn wait_until_ready(interval: Duration) {
     loop {
         match schema_ready().await {
@@ -36,10 +39,12 @@ pub async fn wait_until_ready(interval: Duration) {
     }
 }
 
+/// 获取数据库连接池
 pub fn pool() -> &'static DatabaseConnection {
     SEAORM_POOL.get().expect("数据库连接池尚未初始化")
 }
 
+/// 连接数据库
 async fn connect() -> DatabaseConnection {
     let mut opt = ConnectOptions::new(database_url());
     opt.max_connections(20)

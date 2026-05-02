@@ -25,3 +25,4 @@ tracing-subscriber = { workspace = true }
 crawler-core = { path = "../crates/crawler-core" }
 crawler-official-site-news = { path = "../crates/crawler-official-site-news" }
 crawler-miyoushe-news = { path = "../crates/crawler-miyoushe-news" }
+comfy-table = "7.2.2"
