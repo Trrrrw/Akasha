@@ -1,6 +1,7 @@
 target/
 data/
 .temp/
+.agents/
 
 .env
 .codex

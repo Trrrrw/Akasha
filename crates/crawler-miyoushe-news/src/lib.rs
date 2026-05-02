@@ -140,7 +140,7 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                     break;
                 }
                 parse_and_save(&post.post, game, source).await?;
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                tokio::time::sleep(Duration::from_secs(1)).await;
                 saved_items += 1;
             }
             if found_existing {
@@ -162,6 +162,7 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                     single_page_data.data.last_id
                 )
             })?;
+            tokio::time::sleep(Duration::from_secs(3)).await;
         }
     }
 

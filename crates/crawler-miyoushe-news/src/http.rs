@@ -1,11 +1,17 @@
 use reqwest::{
-    IntoUrl,
+    IntoUrl, StatusCode,
     header::{
         ACCEPT, ACCEPT_LANGUAGE, CONNECTION, COOKIE, HeaderMap, HeaderValue, ORIGIN, REFERER,
         USER_AGENT,
     },
 };
 use serde::de::DeserializeOwned;
+use std::time::Duration;
+
+use crawler_core::warn;
+
+const TOO_MANY_REQUESTS_MAX_RETRIES: u32 = 5;
+const TOO_MANY_REQUESTS_RETRY_DELAY: Duration = Duration::from_secs(10 * 60);
 
 pub async fn get<U, T>(url: U) -> anyhow::Result<T>
 where
@@ -13,20 +19,36 @@ where
     T: DeserializeOwned,
 {
     let client = reqwest::Client::new();
+    let url = url.into_url()?;
 
-    let text = client
-        .get(url)
-        .headers(headers()?)
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
+    for attempt in 1..=TOO_MANY_REQUESTS_MAX_RETRIES {
+        let response = client.get(url.clone()).headers(headers()?).send().await?;
 
-    let data = serde_json::from_str::<T>(&text)
-        .map_err(|err| anyhow::anyhow!("JSON 解析失败: {err}; 响应内容: {text}"))?;
+        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            if attempt == TOO_MANY_REQUESTS_MAX_RETRIES {
+                response.error_for_status()?;
+            }
 
-    Ok(data)
+            warn!(
+                url = %url,
+                attempt = attempt,
+                max_retries = TOO_MANY_REQUESTS_MAX_RETRIES,
+                retry_after_secs = TOO_MANY_REQUESTS_RETRY_DELAY.as_secs(),
+                "米游社请求触发 429 限流，等待后重试"
+            );
+            tokio::time::sleep(TOO_MANY_REQUESTS_RETRY_DELAY).await;
+            continue;
+        }
+
+        let text = response.error_for_status()?.text().await?;
+
+        let data = serde_json::from_str::<T>(&text)
+            .map_err(|err| anyhow::anyhow!("JSON 解析失败: {err}; 响应内容: {text}"))?;
+
+        return Ok(data);
+    }
+
+    unreachable!("retry loop either returns data or propagates the final 429 error")
 }
 
 fn headers() -> anyhow::Result<HeaderMap> {

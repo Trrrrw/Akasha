@@ -61,7 +61,6 @@ impl TaskRegistry {
                 match task.run(&ctx).await {
                     Ok(()) => {
                         info!(task = task_name, "爬虫任务完成");
-                        println!("\n");
                         Ok(())
                     }
                     Err(err) => {
