@@ -4,7 +4,7 @@ use crawler_core::Game;
 
 pub trait MiyousheGameExt {
     const ALL: [Game; 7];
-    const API_BASE: &'static str;
+    fn api_base(&self) -> &'static str;
     fn code(&self) -> &'static str;
     fn gid(&self) -> &'static str;
     fn api_params(
@@ -30,7 +30,12 @@ impl MiyousheGameExt for Game {
         Game::Hna,
     ];
 
-    const API_BASE: &'static str = "https://bbs-api.miyoushe.com/painter/wapi/getNewsList";
+    fn api_base(&self) -> &'static str {
+        match self {
+            Game::Hna => "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList",
+            _ => "https://bbs-api.miyoushe.com/painter/wapi/getNewsList",
+        }
+    }
 
     fn code(&self) -> &'static str {
         match self {
@@ -67,6 +72,12 @@ impl MiyousheGameExt for Game {
         params.insert("last_id".to_string(), last_id.to_string());
         params.insert("page_size".to_string(), page_size.to_string());
         params.insert("type".to_string(), news_type.to_string());
+        match self {
+            Game::Hna => {
+                params.insert("client_type".to_string(), "4".to_string());
+            }
+            _ => {}
+        }
         params
     }
 

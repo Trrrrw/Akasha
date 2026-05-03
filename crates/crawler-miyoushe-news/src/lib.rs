@@ -80,12 +80,12 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
     let mut fetched_pages = 0u32;
     let mut saved_items = 0u32;
     for news_type in 1..4 {
-        let mut last_id: u32 = page_size;
+        let mut last_id: u32 = 0;
         let mut found_existing = false;
         loop {
             let params = game.api_params(&last_id, &page_size, &news_type);
             let single_page_data: MiyousheResponse =
-                match core_http::get(Game::API_BASE, &params).await {
+                match core_http::get(game.api_base(), &params).await {
                     Ok(Some(data)) => data,
                     Ok(None) => {
                         warn!(
@@ -123,6 +123,7 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                 item_count = single_page_data.data.list.len(),
                 "成功获取页面"
             );
+            tokio::time::sleep(Duration::from_secs(3)).await;
 
             for post in single_page_data.data.list {
                 let news_remote_id = post.post.remote_id.clone();
@@ -162,7 +163,6 @@ async fn crawl_game(source: &'static str, game: Game) -> Result<()> {
                     single_page_data.data.last_id
                 )
             })?;
-            tokio::time::sleep(Duration::from_secs(3)).await;
         }
     }
 
