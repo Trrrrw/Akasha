@@ -7,20 +7,37 @@
 
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { BrowserRouter, Route, Routes } from "react-router";
+
+import "./index.css";
+import { SignupForm } from "@/components/signup-form";
+import { LoginForm } from "@/components/login-form";
+import ProtectedRoute from "@/pages/protected-route";
+import DashboardPage from "@/pages/dashboard";
+import AuthPage from "./pages/auth";
 
 const elem = document.getElementById("root")!;
 const app = (
-    <StrictMode>
-        <App />
-    </StrictMode>
+  <StrictMode>
+    <BrowserRouter basename="/admin">
+      <Routes>
+        <Route element={<AuthPage />}>
+          <Route path="/setup" element={<SignupForm />} />
+          <Route path="/login" element={<LoginForm />} />
+        </Route>
+        <Route element={<ProtectedRoute />}>
+          <Route path="/" element={<DashboardPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  </StrictMode>
 );
 
 if (import.meta.hot) {
-    // With hot module reloading, `import.meta.hot.data` is persisted.
-    const root = (import.meta.hot.data.root ??= createRoot(elem));
-    root.render(app);
+  // With hot module reloading, `import.meta.hot.data` is persisted.
+  const root = (import.meta.hot.data.root ??= createRoot(elem));
+  root.render(app);
 } else {
-    // The hot module reloading API is not available in production.
-    createRoot(elem).render(app);
+  // The hot module reloading API is not available in production.
+  createRoot(elem).render(app);
 }

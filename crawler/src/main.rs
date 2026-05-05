@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use comfy_table::{ContentArrangement::Dynamic, Table, presets::UTF8_FULL};
 use std::sync::Arc;
 use std::time::Duration;
+use time::format_description::well_known::Rfc3339;
 use tracing_subscriber::{EnvFilter, fmt};
 
 use crawler_core::CrawlerContext;
@@ -77,9 +78,13 @@ fn init_tracing() {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,tokio_cron_scheduler=warn"));
 
+    let offset = time::UtcOffset::from_hms(8, 0, 0).unwrap();
+    let timer = fmt::time::OffsetTime::new(offset, Rfc3339);
+
     fmt()
         .with_env_filter(filter)
         .with_target(false)
         .with_writer(std::io::stdout)
+        .with_timer(timer)
         .init();
 }

@@ -25,12 +25,20 @@ docker build --target crawler -t akasha-crawler:latest .
 cp docker-compose.example.yml docker-compose.yml
 ```
 
+生成 jwt secret
+
+```bash
+openssl rand -base64 32
+```
+
+
 需要修改 `docker-compose.yml` 中这些值：
 
 ```yaml
 POSTGRES_USER: "fill-postgres-user"
 POSTGRES_PASSWORD: "fill-postgres-password"
 MIYOUSHE_COOKIE: "fill-miyoushe-cookie"
+ADMIN_JWT_SECRET: "jwt-secret"
 ```
 
 启动服务：

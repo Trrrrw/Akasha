@@ -17,6 +17,7 @@ scraper = "0.26.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
 strum = { version = "0.28.0", features = ["derive"] }
+time = { version = "0.3", features = ["formatting", "local-offset"] }
 tokio = { workspace = true }
 tokio-cron-scheduler = "0.15.1"
 tracing = { workspace = true }

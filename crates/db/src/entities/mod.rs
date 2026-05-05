@@ -1,3 +1,5 @@
+pub mod admin_sessions;
+pub mod admin_users;
 pub mod game_characters;
 pub mod game_events;
 pub mod games;

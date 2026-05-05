@@ -8,9 +8,12 @@ use tracing_subscriber::{EnvFilter, fmt};
 use utoipa::openapi::{ContactBuilder, LicenseBuilder, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 
+use routes::admin::setup_token;
+
 #[tokio::main]
 async fn main() {
     init_tracing();
+    setup_token::init_setup_token();
     db::init_and_sync().await;
 
     let (api_router, mut api) = OpenApiRouter::new()

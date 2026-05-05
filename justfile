@@ -8,6 +8,9 @@ crawler +args:
     clear
     cargo run -p crawler -- {{ args }}
 
+admin:
+    cd admin && bun run dev
+
 dev:
     clear
     bash -c '\
@@ -28,6 +31,10 @@ build-docker:
     docker build --target akasha -t akasha:latest .
     docker build --target crawler -t akasha-crawler:latest .
 
+run-docker: build-docker
+    clear
+    docker compose -f docker-compose.dev.yml up -d
+    
 check:
     cargo fmt
     cargo check

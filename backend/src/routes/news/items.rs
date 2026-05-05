@@ -423,18 +423,18 @@ impl NewsItemListRow {
         }
     }
 
-    fn to_summary(self, categories: Vec<String>, tags: Vec<String>) -> NewsItemSummary {
+    fn to_summary(&self, categories: Vec<String>, tags: Vec<String>) -> NewsItemSummary {
         NewsItemSummary {
-            remote_id: self.remote_id,
-            game_code: self.game_code,
-            source: self.source,
-            title: self.title,
-            intro: self.intro,
+            remote_id: self.remote_id.clone(),
+            game_code: self.game_code.clone(),
+            source: self.source.clone(),
+            title: self.title.clone(),
+            intro: self.intro.clone(),
             publish_time: format_datetime(self.publish_time),
-            source_url: self.source_url,
-            cover: self.cover,
+            source_url: self.source_url.clone(),
+            cover: self.cover.clone(),
             is_video: self.is_video,
-            video_url: self.video_url,
+            video_url: self.video_url.clone(),
             categories,
             tags,
         }

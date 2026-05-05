@@ -15,3 +15,11 @@ declare module "*.module.css" {
   const classes: { readonly [key: string]: string };
   export = classes;
 }
+
+declare module "*.webp" {
+  /**
+   * A path to the WEBP file
+   */
+   const path: `${string}.webp`;
+   export = path;
+}
