@@ -1,12 +1,11 @@
 use axum::{Json, extract::Query, http::StatusCode};
-use db::entities::{news_items, news_search};
-use sea_orm::EntityTrait;
+use db::entities::news_search;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use super::items::{
-    MAX_PAGE_SIZE, NewsErrorResponse, NewsItemSummary, internal_error, load_categories, load_tags,
-    to_summary,
+    MAX_PAGE_SIZE, NewsErrorResponse, NewsItemKey, NewsItemSummary, internal_error,
+    load_categories_for_items, load_list_rows_by_keys, load_tags_for_items,
 };
 use axum_mcp::{MCPInputSchema, mcp};
 
@@ -29,50 +28,56 @@ const DEFAULT_PAGE_SIZE: u64 = 20;
 pub async fn news_search(
     Query(query): Query<NewsSearchQuery>,
 ) -> Result<Json<NewsSearchResponse>, (StatusCode, Json<NewsErrorResponse>)> {
-    let keys = news_search::search(news_search::SearchQuery {
-        q: &query.q,
-        game: None,
-        source: None,
-        is_video: query.is_video,
-    })
-    .await
-    .map_err(internal_error)?;
-
-    let mut items = Vec::new();
-
-    for key in keys {
-        if let Some(item) =
-            news_items::Entity::find_by_id((key.remote_id, key.game_code, key.source))
-                .one(db::pool())
-                .await
-                .map_err(internal_error)?
-        {
-            let categories = load_categories(&item).await.map_err(internal_error)?;
-            let tags = load_tags(&item).await.map_err(internal_error)?;
-            items.push(to_summary(item, categories, tags));
-        }
-    }
-
-    let total = items.len() as u64;
     let page = query.page.unwrap_or(DEFAULT_PAGE).max(1);
     let page_size = query
         .page_size
         .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, MAX_PAGE_SIZE);
-    let start = ((page - 1) * page_size) as usize;
-    let end = (start + page_size as usize).min(items.len());
-    let data = if start < items.len() {
-        items[start..end].to_vec()
-    } else {
-        Vec::new()
-    };
+    let offset = (page - 1) * page_size;
+    let total = news_search::count(news_search::SearchQuery {
+        q: &query.q,
+        game: None,
+        source: None,
+        is_video: query.is_video,
+        limit: None,
+        offset: None,
+    })
+    .await
+    .map_err(internal_error)?;
+    let keys = news_search::search(news_search::SearchQuery {
+        q: &query.q,
+        game: None,
+        source: None,
+        is_video: query.is_video,
+        limit: Some(page_size),
+        offset: Some(offset),
+    })
+    .await
+    .map_err(internal_error)?;
+    let item_keys = keys.iter().map(NewsItemKey::from).collect::<Vec<_>>();
+    let rows = load_list_rows_by_keys(&item_keys)
+        .await
+        .map_err(internal_error)?;
+    let categories = load_categories_for_items(&rows)
+        .await
+        .map_err(internal_error)?;
+    let tags = load_tags_for_items(&rows).await.map_err(internal_error)?;
+    let items = rows
+        .into_iter()
+        .map(|item| {
+            let key = item.key();
+            let categories = categories.get(&key).cloned().unwrap_or_default();
+            let tags = tags.get(&key).cloned().unwrap_or_default();
+            item.to_summary(categories, tags)
+        })
+        .collect();
 
     Ok(Json(NewsSearchResponse {
         q: query.q,
         page,
         page_size,
         total,
-        items: data,
+        items,
     }))
 }
 

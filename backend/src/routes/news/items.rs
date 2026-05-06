@@ -5,7 +5,7 @@ use axum::{
 };
 use chrono::{DateTime, FixedOffset};
 use db::entities::{
-    games, news_categories, news_categories_link, news_items, news_tags_link, tags,
+    games, news_categories, news_categories_link, news_items, news_search, news_tags_link, tags,
 };
 use sea_orm::sea_query::Expr;
 use sea_orm::{
@@ -310,7 +310,7 @@ pub(super) async fn load_tags(item: &news_items::Model) -> Result<Vec<String>, s
     Ok(values)
 }
 
-async fn load_categories_for_items(
+pub(super) async fn load_categories_for_items(
     items: &[NewsItemListRow],
 ) -> Result<HashMap<NewsItemKey, Vec<String>>, sea_orm::DbErr> {
     if items.is_empty() {
@@ -342,7 +342,7 @@ async fn load_categories_for_items(
     Ok(values)
 }
 
-async fn load_tags_for_items(
+pub(super) async fn load_tags_for_items(
     items: &[NewsItemListRow],
 ) -> Result<HashMap<NewsItemKey, Vec<String>>, sea_orm::DbErr> {
     if items.is_empty() {
@@ -394,28 +394,28 @@ where
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct NewsItemKey {
-    remote_id: String,
-    game_code: String,
-    source: String,
+pub(super) struct NewsItemKey {
+    pub(super) remote_id: String,
+    pub(super) game_code: String,
+    pub(super) source: String,
 }
 
 #[derive(Clone, FromQueryResult)]
-struct NewsItemListRow {
-    remote_id: String,
-    game_code: String,
-    source: String,
-    title: String,
-    intro: Option<String>,
-    publish_time: DateTime<FixedOffset>,
-    source_url: String,
-    cover: String,
-    is_video: bool,
-    video_url: Option<String>,
+pub(super) struct NewsItemListRow {
+    pub(super) remote_id: String,
+    pub(super) game_code: String,
+    pub(super) source: String,
+    pub(super) title: String,
+    pub(super) intro: Option<String>,
+    pub(super) publish_time: DateTime<FixedOffset>,
+    pub(super) source_url: String,
+    pub(super) cover: String,
+    pub(super) is_video: bool,
+    pub(super) video_url: Option<String>,
 }
 
 impl NewsItemListRow {
-    fn key(&self) -> NewsItemKey {
+    pub(super) fn key(&self) -> NewsItemKey {
         NewsItemKey {
             remote_id: self.remote_id.clone(),
             game_code: self.game_code.clone(),
@@ -423,7 +423,7 @@ impl NewsItemListRow {
         }
     }
 
-    fn to_summary(&self, categories: Vec<String>, tags: Vec<String>) -> NewsItemSummary {
+    pub(super) fn to_summary(&self, categories: Vec<String>, tags: Vec<String>) -> NewsItemSummary {
         NewsItemSummary {
             remote_id: self.remote_id.clone(),
             game_code: self.game_code.clone(),
@@ -439,6 +439,57 @@ impl NewsItemListRow {
             tags,
         }
     }
+}
+
+impl From<&news_search::SearchKey> for NewsItemKey {
+    fn from(key: &news_search::SearchKey) -> Self {
+        Self {
+            remote_id: key.remote_id.clone(),
+            game_code: key.game_code.clone(),
+            source: key.source.clone(),
+        }
+    }
+}
+
+pub(super) async fn load_list_rows_by_keys(
+    keys: &[NewsItemKey],
+) -> Result<Vec<NewsItemListRow>, sea_orm::DbErr> {
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = news_items::Entity::find()
+        .select_only()
+        .column(news_items::Column::RemoteId)
+        .column(news_items::Column::GameCode)
+        .column(news_items::Column::Source)
+        .column(news_items::Column::Title)
+        .column(news_items::Column::Intro)
+        .column(news_items::Column::PublishTime)
+        .column(news_items::Column::SourceUrl)
+        .column(news_items::Column::Cover)
+        .column(news_items::Column::IsVideo)
+        .column(news_items::Column::VideoUrl)
+        .filter(keys.iter().fold(Condition::any(), |condition, key| {
+            condition.add(
+                Condition::all()
+                    .add(news_items::Column::RemoteId.eq(&key.remote_id))
+                    .add(news_items::Column::GameCode.eq(&key.game_code))
+                    .add(news_items::Column::Source.eq(&key.source)),
+            )
+        }))
+        .into_model::<NewsItemListRow>()
+        .all(db::pool())
+        .await?;
+    let mut rows_by_key = rows
+        .into_iter()
+        .map(|row| (row.key(), row))
+        .collect::<HashMap<_, _>>();
+
+    Ok(keys
+        .iter()
+        .filter_map(|key| rows_by_key.remove(key))
+        .collect())
 }
 
 pub(super) fn to_summary(

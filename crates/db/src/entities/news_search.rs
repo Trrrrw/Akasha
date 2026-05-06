@@ -12,6 +12,8 @@ pub struct SearchQuery<'a> {
     pub game: Option<&'a str>,
     pub source: Option<&'a str>,
     pub is_video: Option<bool>,
+    pub limit: Option<u64>,
+    pub offset: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -41,6 +43,38 @@ struct SearchFilters {
 }
 
 pub async fn search(query: SearchQuery<'_>) -> Result<Vec<SearchKey>, DbErr> {
+    let (mut sql, mut values) = build_search_sql(&query, SearchSelect::Keys).await?;
+
+    sql.push_str(" ORDER BY n.publish_time DESC");
+
+    if let Some(limit) = query.limit {
+        sql.push_str(" LIMIT ?");
+        values.push((limit as i64).into());
+    }
+
+    if let Some(offset) = query.offset {
+        sql.push_str(" OFFSET ?");
+        values.push((offset as i64).into());
+    }
+
+    query_keys(sql, values).await
+}
+
+pub async fn count(query: SearchQuery<'_>) -> Result<u64, DbErr> {
+    let (sql, values) = build_search_sql(&query, SearchSelect::Count).await?;
+
+    query_count(sql, values).await
+}
+
+enum SearchSelect {
+    Keys,
+    Count,
+}
+
+async fn build_search_sql(
+    query: &SearchQuery<'_>,
+    select: SearchSelect,
+) -> Result<(String, Vec<Value>), DbErr> {
     let mut groups = parse_query(query.q);
     let mut filters = SearchFilters {
         game: query.game.map(ToOwned::to_owned),
@@ -50,16 +84,25 @@ pub async fn search(query: SearchQuery<'_>) -> Result<Vec<SearchKey>, DbErr> {
     groups.retain_mut(|group| extract_filter_group(group, &mut filters));
     resolve_game_filters(&mut groups, &mut filters).await?;
 
-    let mut sql = String::from(
-        r#"
-        SELECT
-            n.remote_id AS remote_id,
-            n.game_code AS game_code,
-            n.source AS source
-        FROM news_items AS n
-        WHERE 1 = 1
-        "#,
-    );
+    let mut sql = match select {
+        SearchSelect::Keys => String::from(
+            r#"
+            SELECT
+                n.remote_id AS remote_id,
+                n.game_code AS game_code,
+                n.source AS source
+            FROM news_items AS n
+            WHERE 1 = 1
+            "#,
+        ),
+        SearchSelect::Count => String::from(
+            r#"
+            SELECT COUNT(*) AS total
+            FROM news_items AS n
+            WHERE 1 = 1
+            "#,
+        ),
+    };
     let mut values: Vec<Value> = Vec::new();
 
     if let Some(game) = filters.game {
@@ -81,9 +124,7 @@ pub async fn search(query: SearchQuery<'_>) -> Result<Vec<SearchKey>, DbErr> {
         push_group_clause(&mut sql, &mut values, group);
     }
 
-    sql.push_str(" ORDER BY n.publish_time DESC");
-
-    query_keys(sql, values).await
+    Ok((sql, values))
 }
 
 async fn resolve_game_filters(
@@ -300,6 +341,7 @@ fn like_pattern(keyword: &str) -> String {
 
 async fn query_keys(sql: String, values: Vec<Value>) -> Result<Vec<SearchKey>, DbErr> {
     let conn = crate::pool();
+    let sql = numbered_placeholders(&sql);
     let rows = conn
         .query_all_raw(Statement::from_sql_and_values(
             conn.get_database_backend(),
@@ -318,4 +360,40 @@ async fn query_keys(sql: String, values: Vec<Value>) -> Result<Vec<SearchKey>, D
     }
 
     Ok(keys)
+}
+
+async fn query_count(sql: String, values: Vec<Value>) -> Result<u64, DbErr> {
+    let conn = crate::pool();
+    let sql = numbered_placeholders(&sql);
+    let Some(row) = conn
+        .query_one_raw(Statement::from_sql_and_values(
+            conn.get_database_backend(),
+            sql,
+            values,
+        ))
+        .await?
+    else {
+        return Ok(0);
+    };
+
+    let total: i64 = row.try_get("", "total")?;
+
+    Ok(total as u64)
+}
+
+fn numbered_placeholders(sql: &str) -> String {
+    let mut next = 1;
+    let mut output = String::with_capacity(sql.len());
+
+    for ch in sql.chars() {
+        if ch == '?' {
+            output.push('$');
+            output.push_str(&next.to_string());
+            next += 1;
+        } else {
+            output.push(ch);
+        }
+    }
+
+    output
 }

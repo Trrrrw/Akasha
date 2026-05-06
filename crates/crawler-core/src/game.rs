@@ -66,9 +66,7 @@ impl Game {
             Game::Wd => {
                 "https://webstatic.mihoyo.com/upload/wd-wiki/2022/02/28/127729/120b5d4273290a9425ccb280becbf6c3_4216098022458368688.png"
             }
-            Game::Planet => {
-                "https://fastcdn.mihoyo.com/content-v2/hyg/159836/d693785a0c7bbc09bc5a343465264403_6948692753721779299.png"
-            }
+            Game::Planet => "https://planet.mihoyo.com/_nuxt/img/poster.d17fa7b.png",
             Game::Hna => "http://static.event.mihoyo.com/bh3_homepage/images/pic/picture/01.jpg",
         }
     }

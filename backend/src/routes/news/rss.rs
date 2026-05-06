@@ -6,11 +6,14 @@ use axum::{
 };
 use db::entities::{news_items, news_search};
 use rss::{ChannelBuilder, GuidBuilder, ItemBuilder};
-use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect};
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-use super::items::{MAX_PAGE_SIZE, NewsErrorResponse, internal_error, load_categories, load_tags};
+use super::items::{
+    MAX_PAGE_SIZE, NewsErrorResponse, NewsItemKey, NewsItemListRow, internal_error,
+    load_categories_for_items, load_list_rows_by_keys, load_tags_for_items,
+};
 
 const DEFAULT_RSS_LIMIT: u64 = 50;
 
@@ -33,12 +36,19 @@ pub async fn news_rss(
         .limit
         .unwrap_or(DEFAULT_RSS_LIMIT)
         .clamp(1, MAX_PAGE_SIZE);
-    let items = load_news_for_rss(&query).await.map_err(internal_error)?;
+    let items = load_news_for_rss(&query, limit)
+        .await
+        .map_err(internal_error)?;
+    let categories = load_categories_for_items(&items)
+        .await
+        .map_err(internal_error)?;
+    let tags = load_tags_for_items(&items).await.map_err(internal_error)?;
     let mut rss_items = Vec::new();
 
-    for item in items.into_iter().take(limit as usize) {
-        let categories = load_categories(&item).await.map_err(internal_error)?;
-        let tags = load_tags(&item).await.map_err(internal_error)?;
+    for item in items {
+        let key = item.key();
+        let item_categories = categories.get(&key).cloned().unwrap_or_default();
+        let item_tags = tags.get(&key).cloned().unwrap_or_default();
         let mut guid_builder = GuidBuilder::default();
         guid_builder
             .value(format!(
@@ -55,11 +65,14 @@ pub async fn news_rss(
             .pub_date(Some(item.publish_time.to_rfc2822()))
             .guid(Some(guid));
 
-        if let Some(intro) = item.intro {
-            item_builder.description(Some(intro));
-        }
+        item_builder.description(rss_description(
+            item.intro.as_deref(),
+            &item.cover,
+            item.video_url.as_deref(),
+            item.is_video,
+        ));
 
-        for category in categories.into_iter().chain(tags) {
+        for category in item_categories.into_iter().chain(item_tags) {
             item_builder.category(category.into());
         }
 
@@ -86,11 +99,14 @@ pub async fn news_rss(
         .into_response())
 }
 
-async fn load_news_for_rss(query: &NewsRssQuery) -> Result<Vec<news_items::Model>, sea_orm::DbErr> {
+async fn load_news_for_rss(
+    query: &NewsRssQuery,
+    limit: u64,
+) -> Result<Vec<NewsItemListRow>, sea_orm::DbErr> {
     if let Some(q) = &query.q
         && !q.trim().is_empty()
     {
-        return load_news_for_rss_search(q, query.is_video).await;
+        return load_news_for_rss_search(q, query.is_video, limit).await;
     }
 
     let conn = db::pool();
@@ -101,7 +117,20 @@ async fn load_news_for_rss(query: &NewsRssQuery) -> Result<Vec<news_items::Model
     }
 
     statement
+        .select_only()
+        .column(news_items::Column::RemoteId)
+        .column(news_items::Column::GameCode)
+        .column(news_items::Column::Source)
+        .column(news_items::Column::Title)
+        .column(news_items::Column::Intro)
+        .column(news_items::Column::PublishTime)
+        .column(news_items::Column::SourceUrl)
+        .column(news_items::Column::Cover)
+        .column(news_items::Column::IsVideo)
+        .column(news_items::Column::VideoUrl)
         .order_by(news_items::Column::PublishTime, Order::Desc)
+        .limit(limit)
+        .into_model::<NewsItemListRow>()
         .all(conn)
         .await
 }
@@ -109,27 +138,21 @@ async fn load_news_for_rss(query: &NewsRssQuery) -> Result<Vec<news_items::Model
 async fn load_news_for_rss_search(
     q: &str,
     is_video: Option<bool>,
-) -> Result<Vec<news_items::Model>, sea_orm::DbErr> {
+    limit: u64,
+) -> Result<Vec<NewsItemListRow>, sea_orm::DbErr> {
     let keys = news_search::search(news_search::SearchQuery {
         q,
         game: None,
         source: None,
         is_video,
+        limit: Some(limit),
+        offset: None,
     })
     .await?;
-    let mut items = Vec::new();
 
-    for key in keys {
-        if let Some(item) =
-            news_items::Entity::find_by_id((key.remote_id, key.game_code, key.source))
-                .one(db::pool())
-                .await?
-        {
-            items.push(item);
-        }
-    }
+    let item_keys = keys.iter().map(NewsItemKey::from).collect::<Vec<_>>();
 
-    Ok(items)
+    load_list_rows_by_keys(&item_keys).await
 }
 
 fn channel_title(query: &NewsRssQuery) -> String {
@@ -146,6 +169,78 @@ fn channel_title(query: &NewsRssQuery) -> String {
     }
 
     parts.join(" - ")
+}
+
+fn rss_description(
+    value: Option<&str>,
+    cover: &str,
+    video_url: Option<&str>,
+    is_video: bool,
+) -> Option<String> {
+    let value = value.unwrap_or_default();
+    let intro = value.replace('\n', "<br />");
+
+    if is_video {
+        return join_rss_parts([cover_image(cover), video_block(video_url), non_empty(intro)]);
+    }
+
+    if cover.trim().is_empty() || starts_with_image(value) {
+        return non_empty(intro);
+    }
+
+    join_rss_parts([cover_image(cover), non_empty(intro)])
+}
+
+fn join_rss_parts(parts: impl IntoIterator<Item = Option<String>>) -> Option<String> {
+    let parts = parts.into_iter().flatten().collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("<br />"))
+    }
+}
+
+fn starts_with_image(value: &str) -> bool {
+    value.trim_start().to_lowercase().starts_with("<img")
+}
+
+fn cover_image(cover: &str) -> Option<String> {
+    if cover.trim().is_empty() {
+        None
+    } else {
+        Some(format!(r#"<img src="{}">"#, html_attr(cover)))
+    }
+}
+
+fn video_block(video_url: Option<&str>) -> Option<String> {
+    let video_url = video_url?.trim();
+
+    if video_url.is_empty() {
+        return None;
+    }
+
+    let video_url = html_attr(video_url);
+
+    Some(format!(
+        r#"<video controls src="{video_url}"></video><br /><a href="{video_url}">查看视频</a>"#
+    ))
+}
+
+fn non_empty(value: String) -> Option<String> {
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn html_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 #[derive(Deserialize, IntoParams)]

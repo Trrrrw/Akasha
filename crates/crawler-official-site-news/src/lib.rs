@@ -236,7 +236,7 @@ fn extract_intro(content: &str) -> Option<String> {
 fn extract_cover(default_cover: &'static str, ext: &str, content: &str) -> String {
     if ext != "{}" {
         if let Ok(value) = serde_json::from_str::<Value>(ext) {
-            let ext_cover_keys = ["720_1", "721_1", "news-poster"];
+            let ext_cover_keys = ["720_1", "721_1", "news-poster", "image"];
 
             for key in ext_cover_keys {
                 let Some(url) = value
@@ -252,20 +252,14 @@ fn extract_cover(default_cover: &'static str, ext: &str, content: &str) -> Strin
                 return url.to_string();
             }
         }
-
-        return select_first_attr(content, "div video", "poster")
-            .unwrap_or_else(|| default_cover.to_string());
     }
 
-    let selectors = ["p video", "p span video", "video"];
-
-    for selector in selectors {
-        if let Some(cover) = select_first_attr(content, selector, "poster") {
-            return cover;
-        }
-    }
-
-    default_cover.to_string()
+    select_first_attr(content, "div video", "poster")
+        .or_else(|| select_first_attr(content, "p video", "poster"))
+        .or_else(|| select_first_attr(content, "p span video", "poster"))
+        .or_else(|| select_first_attr(content, "video", "poster"))
+        .or_else(|| select_first_attr(content, "img", "src"))
+        .unwrap_or_else(|| default_cover.to_string())
 }
 
 /// 获取视频链接
