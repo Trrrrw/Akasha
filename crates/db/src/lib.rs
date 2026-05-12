@@ -1,5 +1,5 @@
 pub mod entities;
-mod enums;
+pub mod enums;
 
 use sea_orm::entity::prelude::DatabaseConnection;
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DbErr, Statement};

@@ -38,6 +38,7 @@ run-docker: build-docker
 check:
     cargo fmt
     cargo check
+    cd admin && bun run build
 
 clean:
     clear

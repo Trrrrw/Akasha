@@ -14,7 +14,12 @@ import { SignupForm } from "@/components/signup-form";
 import { LoginForm } from "@/components/login-form";
 import ProtectedRoute from "@/pages/protected-route";
 import DashboardPage from "@/pages/dashboard";
-import AuthPage from "./pages/auth";
+import AuthPage from "@/pages/auth";
+import NewsPage from "@/pages/news";
+import CharactersPage from "@/pages/characters";
+import OverviewPage from "@/pages/overview";
+import { AdminListPage } from "@/pages/admin-list-page";
+import GamesPage from "@/pages/games";
 
 const elem = document.getElementById("root")!;
 const app = (
@@ -26,7 +31,14 @@ const app = (
           <Route path="/login" element={<LoginForm />} />
         </Route>
         <Route element={<ProtectedRoute />}>
-          <Route path="/" element={<DashboardPage />} />
+          <Route element={<DashboardPage />}>
+            <Route index element={<OverviewPage />} />
+            <Route element={<AdminListPage />}>
+              <Route path="/games" element={<GamesPage />} />
+              <Route path="/news" element={<NewsPage />} />
+              <Route path="/characters" element={<CharactersPage />} />
+            </Route>
+          </Route>
         </Route>
       </Routes>
     </BrowserRouter>

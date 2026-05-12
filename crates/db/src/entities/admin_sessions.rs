@@ -8,6 +8,7 @@ pub struct Model {
     pub id: i32,
 
     pub admin_user_id: i32,
+    pub access_token_jti: Option<String>,
     pub refresh_token_jti: String,
 
     pub user_agent: Option<String>,

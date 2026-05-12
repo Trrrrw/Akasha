@@ -14,6 +14,7 @@ export function LoginForm({
 
   async function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    setError(null);
 
     const formData = new FormData(event.currentTarget);
     const username = String(formData.get("username") ?? "");
@@ -67,6 +68,11 @@ export function LoginForm({
           </div>
           <Input name="password" id="password" type="password" required />
         </Field>
+        {error ? (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
         <Field>
           <Button type="submit">登录</Button>
         </Field>

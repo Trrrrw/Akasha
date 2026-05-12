@@ -11,8 +11,8 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub game_code: String,
     pub name: String,
-    pub birthday_month: Option<u8>,
-    pub birthday_day: Option<u8>,
+    pub birthday_month: Option<i16>,
+    pub birthday_day: Option<i16>,
     pub release_time: Option<DateTimeWithTimeZone>,
     pub gender: Option<Gender>,
     pub extra: Option<String>,

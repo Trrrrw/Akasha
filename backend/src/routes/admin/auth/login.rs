@@ -29,9 +29,12 @@ pub async fn post(
     let now = Utc::now().fixed_offset();
     let refresh_expires_at =
         (Utc::now() + Duration::seconds(admin_token::REFRESH_EXPIRES_IN)).fixed_offset();
+    let tokens = admin_token::issue_admin_tokens(&user.user_name, &refresh_jti)
+        .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "failed to issue token"))?;
 
     admin_sessions::ActiveModel {
         admin_user_id: Set(user.id),
+        access_token_jti: Set(Some(tokens.access_jti)),
         refresh_token_jti: Set(refresh_jti.clone()),
         user_agent: Set(None),
         ip_address: Set(None),
@@ -45,9 +48,6 @@ pub async fn post(
     .insert(db::pool())
     .await
     .map_err(internal_error)?;
-
-    let tokens = admin_token::issue_admin_tokens(&user.user_name, &refresh_jti)
-        .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "failed to issue token"))?;
 
     Ok(Json(LoginResponse {
         access_token: tokens.access_token,

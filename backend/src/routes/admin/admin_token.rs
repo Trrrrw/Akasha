@@ -11,6 +11,7 @@ pub const REFRESH_EXPIRES_IN: i64 = 7 * 24 * 60 * 60;
 static JWT_SECRET: OnceLock<String> = OnceLock::new();
 
 pub struct AdminTokens {
+    pub access_jti: String,
     pub access_token: String,
     pub refresh_token: String,
     pub expires_in: i64,
@@ -56,6 +57,7 @@ pub fn issue_admin_tokens(
     )?;
 
     Ok(AdminTokens {
+        access_jti,
         access_token,
         refresh_token,
         expires_in: ACCESS_EXPIRES_IN,

@@ -2,7 +2,9 @@ use axum::{
     Json,
     http::{HeaderMap, StatusCode},
 };
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, EntityTrait, Statement, TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::setup_token;
@@ -31,6 +33,27 @@ pub async fn post(
     let password_hash = hash_password(&req.password)
         .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "failed to hash password"))?;
 
+    let txn = db::pool().begin().await.map_err(internal_error)?;
+    txn.execute_raw(Statement::from_string(
+        txn.get_database_backend(),
+        "SELECT pg_advisory_xact_lock(7040001)".to_string(),
+    ))
+    .await
+    .map_err(internal_error)?;
+
+    let initialized = admin_users::Entity::find()
+        .one(&txn)
+        .await
+        .map_err(internal_error)?
+        .is_some();
+
+    if initialized {
+        return Err(error(
+            StatusCode::CONFLICT,
+            "admin user already initialized",
+        ));
+    }
+
     let now = chrono::Utc::now().fixed_offset();
 
     admin_users::ActiveModel {
@@ -40,9 +63,11 @@ pub async fn post(
         updated_at: Set(now),
         ..Default::default()
     }
-    .insert(db::pool())
+    .insert(&txn)
     .await
     .map_err(internal_error)?;
+
+    txn.commit().await.map_err(internal_error)?;
 
     Ok(Json(SetupResponse { success: true }))
 }

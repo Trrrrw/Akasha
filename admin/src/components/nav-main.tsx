@@ -1,3 +1,4 @@
+import { Link, useLocation } from "react-router"
 import { ChevronRight, type LucideIcon } from "lucide-react"
 
 import {
@@ -31,18 +32,24 @@ export function NavMain({
     }[]
   }[]
 }) {
+  const location = useLocation()
+
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Platform</SidebarGroupLabel>
+      <SidebarGroupLabel>数据管理</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => (
           <Collapsible key={item.title} asChild defaultOpen={item.isActive}>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip={item.title}>
-                <a href={item.url}>
+              <SidebarMenuButton
+                asChild
+                tooltip={item.title}
+                isActive={isActivePath(location.pathname, item.url)}
+              >
+                <Link to={toRoutePath(item.url)}>
                   <item.icon />
                   <span>{item.title}</span>
-                </a>
+                </Link>
               </SidebarMenuButton>
               {item.items?.length ? (
                 <>
@@ -57,9 +64,9 @@ export function NavMain({
                       {item.items?.map((subItem) => (
                         <SidebarMenuSubItem key={subItem.title}>
                           <SidebarMenuSubButton asChild>
-                            <a href={subItem.url}>
+                            <Link to={toRoutePath(subItem.url)}>
                               <span>{subItem.title}</span>
-                            </a>
+                            </Link>
                           </SidebarMenuSubButton>
                         </SidebarMenuSubItem>
                       ))}
@@ -73,4 +80,18 @@ export function NavMain({
       </SidebarMenu>
     </SidebarGroup>
   )
+}
+
+function toRoutePath(url: string) {
+  return url.replace(/^\/admin/, "") || "/"
+}
+
+function isActivePath(pathname: string, url: string) {
+  const routePath = toRoutePath(url)
+
+  if (routePath === "/") {
+    return pathname === "/"
+  }
+
+  return pathname === routePath || pathname.startsWith(`${routePath}/`)
 }

@@ -28,8 +28,11 @@ pub async fn post(
     }
 
     let new_refresh_jti = admin_token::new_token_jti();
+    let tokens = admin_token::issue_admin_tokens(&claims.username, &new_refresh_jti)
+        .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "failed to issue token"))?;
 
     let mut active_session: admin_sessions::ActiveModel = session.into();
+    active_session.access_token_jti = Set(Some(tokens.access_jti));
     active_session.refresh_token_jti = Set(new_refresh_jti.clone());
     active_session.last_used_at = Set(Some(now));
     active_session.updated_at = Set(now);
@@ -38,9 +41,6 @@ pub async fn post(
         .update(db::pool())
         .await
         .map_err(internal_error)?;
-
-    let tokens = admin_token::issue_admin_tokens(&claims.username, &new_refresh_jti)
-        .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "failed to issue token"))?;
 
     Ok(Json(RefreshResponse {
         access_token: tokens.access_token,

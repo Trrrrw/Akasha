@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, Query},
     http::StatusCode,
 };
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, NaiveDate};
 use db::entities::{game_characters, games};
 use sea_orm::{
     ActiveEnum, ColumnTrait, Condition, EntityTrait, Order, PaginatorTrait, QueryFilter,
@@ -22,6 +22,7 @@ const MAX_PAGE_SIZE: u64 = 100;
 pub fn router() -> OpenApiRouter {
     OpenApiRouter::new()
         .routes(routes!(characters))
+        .routes(routes!(character_search))
         .routes(routes!(character))
 }
 
@@ -31,10 +32,11 @@ pub fn router() -> OpenApiRouter {
     path = "/characters",
     tag = "Characters",
     summary = "获取角色列表",
-    description = "按游戏、性别和关键词筛选角色，返回分页后的角色基础信息。",
+    description = "按游戏、性别和生日筛选角色，返回分页后的角色基础信息。",
     params(CharactersQuery),
     responses(
         (status = 200, body = CharactersResponse),
+        (status = 400, body = CharacterErrorResponse),
         (status = 500, body = CharacterErrorResponse)
     )
 )]
@@ -74,17 +76,81 @@ pub async fn characters(
         }));
     }
 
-    if let Some(keyword) = query
-        .q
+    statement = apply_birthday_filter(statement, &query)?;
+
+    let total = statement
+        .clone()
+        .count(conn)
+        .await
+        .map_err(internal_error)?;
+    let offset = (page - 1) * page_size;
+    let characters = statement
+        .order_by(game_characters::Column::GameCode, Order::Asc)
+        .order_by(game_characters::Column::Name, Order::Asc)
+        .offset(offset)
+        .limit(page_size)
+        .all(conn)
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .map(CharacterSummary::from_model)
+        .collect();
+
+    Ok(Json(CharactersResponse {
+        page,
+        page_size,
+        total,
+        characters,
+    }))
+}
+
+#[mcp]
+#[utoipa::path(
+    get,
+    path = "/characters/search",
+    tag = "Characters",
+    summary = "按角色名搜索角色",
+    description = "按角色名关键词搜索角色，重名角色会以列表形式返回。",
+    params(CharacterSearchQuery),
+    responses(
+        (status = 200, body = CharactersResponse),
+        (status = 400, body = CharacterErrorResponse),
+        (status = 500, body = CharacterErrorResponse)
+    )
+)]
+pub async fn character_search(
+    Query(query): Query<CharacterSearchQuery>,
+) -> Result<Json<CharactersResponse>, (StatusCode, Json<CharacterErrorResponse>)> {
+    let conn = db::pool();
+    let page = query.page.unwrap_or(DEFAULT_PAGE).max(1);
+    let page_size = query
+        .page_size
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let Some(name) = query
+        .name
         .as_deref()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
+        .filter(|name| !name.is_empty())
+    else {
+        return Err(bad_request("name is required"));
+    };
+
+    let mut statement =
+        game_characters::Entity::find().filter(game_characters::Column::Name.contains(name));
+
+    if let Some(game_code) = resolve_optional_game(query.game.as_deref())
+        .await
+        .map_err(internal_error)?
     {
-        statement = statement.filter(
-            Condition::any()
-                .add(game_characters::Column::CharacterCode.contains(keyword))
-                .add(game_characters::Column::Name.contains(keyword)),
-        );
+        statement = statement.filter(game_characters::Column::GameCode.eq(game_code));
+    } else if query.game.is_some() {
+        return Ok(Json(CharactersResponse {
+            page,
+            page_size,
+            total: 0,
+            characters: Vec::new(),
+        }));
     }
 
     let total = statement
@@ -166,6 +232,15 @@ fn not_found() -> (StatusCode, Json<CharacterErrorResponse>) {
     )
 }
 
+fn bad_request(message: impl Into<String>) -> (StatusCode, Json<CharacterErrorResponse>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(CharacterErrorResponse {
+            message: message.into(),
+        }),
+    )
+}
+
 async fn resolve_optional_game(input: Option<&str>) -> Result<Option<String>, sea_orm::DbErr> {
     match input {
         Some(value) => games::Entity::resolve_game_code(value).await,
@@ -186,6 +261,90 @@ fn format_datetime(value: DateTime<FixedOffset>) -> String {
     value.to_rfc3339()
 }
 
+fn apply_birthday_filter(
+    statement: sea_orm::Select<game_characters::Entity>,
+    query: &CharactersQuery,
+) -> Result<sea_orm::Select<game_characters::Entity>, (StatusCode, Json<CharacterErrorResponse>)> {
+    if let Some(date) = query.date.as_deref() {
+        let date = parse_mmdd(date)?;
+        return Ok(statement.filter(
+            Condition::all()
+                .add(game_characters::Column::BirthdayMonth.eq(date.month))
+                .add(game_characters::Column::BirthdayDay.eq(date.day)),
+        ));
+    }
+
+    match (query.start.as_deref(), query.end.as_deref()) {
+        (None, None) => Ok(statement),
+        (Some(start), Some(end)) => {
+            let start = parse_mmdd(start)?;
+            let end = parse_mmdd(end)?;
+            let condition = if start.value <= end.value {
+                Condition::all()
+                    .add(on_or_after_birthday(start))
+                    .add(on_or_before_birthday(end))
+            } else {
+                Condition::any()
+                    .add(on_or_after_birthday(start))
+                    .add(on_or_before_birthday(end))
+            };
+
+            Ok(statement.filter(condition))
+        }
+        _ => Err(bad_request("start and end must be used together")),
+    }
+}
+
+fn on_or_after_birthday(date: BirthdayDate) -> Condition {
+    Condition::any()
+        .add(game_characters::Column::BirthdayMonth.gt(date.month))
+        .add(
+            Condition::all()
+                .add(game_characters::Column::BirthdayMonth.eq(date.month))
+                .add(game_characters::Column::BirthdayDay.gte(date.day)),
+        )
+}
+
+fn on_or_before_birthday(date: BirthdayDate) -> Condition {
+    Condition::any()
+        .add(game_characters::Column::BirthdayMonth.lt(date.month))
+        .add(
+            Condition::all()
+                .add(game_characters::Column::BirthdayMonth.eq(date.month))
+                .add(game_characters::Column::BirthdayDay.lte(date.day)),
+        )
+}
+
+fn parse_mmdd(value: &str) -> Result<BirthdayDate, (StatusCode, Json<CharacterErrorResponse>)> {
+    let value = value.trim();
+    if value.len() != 4 || !value.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(bad_request("date must use MMDD format"));
+    }
+
+    let month = value[0..2]
+        .parse::<u32>()
+        .map_err(|_| bad_request("date must use MMDD format"))?;
+    let day = value[2..4]
+        .parse::<u32>()
+        .map_err(|_| bad_request("date must use MMDD format"))?;
+
+    NaiveDate::from_ymd_opt(2000, month, day)
+        .ok_or_else(|| bad_request("invalid birthday date"))?;
+
+    Ok(BirthdayDate {
+        month: month as i16,
+        day: day as i16,
+        value: (month * 100 + day) as i16,
+    })
+}
+
+#[derive(Clone, Copy)]
+struct BirthdayDate {
+    month: i16,
+    day: i16,
+    value: i16,
+}
+
 #[derive(Deserialize, IntoParams, MCPInputSchema)]
 #[into_params(parameter_in = Query)]
 pub struct CharactersQuery {
@@ -193,8 +352,25 @@ pub struct CharactersQuery {
     game: Option<String>,
     /// 性别筛选，支持 male、female、unknown，也支持男、女、未知。
     gender: Option<String>,
-    /// 按角色代码或角色名搜索。
-    q: Option<String>,
+    /// 生日筛选，格式 MMDD，例如 0921。
+    date: Option<String>,
+    /// 生日范围开始，格式 MMDD，例如 0901。
+    start: Option<String>,
+    /// 生日范围结束，格式 MMDD，例如 0930；支持跨年范围。
+    end: Option<String>,
+    /// 页码，从 1 开始。
+    page: Option<u64>,
+    /// 每页数量，最大 100。
+    page_size: Option<u64>,
+}
+
+#[derive(Deserialize, IntoParams, MCPInputSchema)]
+#[into_params(parameter_in = Query)]
+pub struct CharacterSearchQuery {
+    /// 角色名关键词。
+    name: Option<String>,
+    /// 游戏代码或中英文名称，例如 hk4e、原神、Genshin Impact。
+    game: Option<String>,
     /// 页码，从 1 开始。
     page: Option<u64>,
     /// 每页数量，最大 100。
@@ -220,9 +396,9 @@ pub struct CharacterSummary {
     /// 角色名。
     name: String,
     /// 生日月份。
-    birthday_month: Option<u8>,
+    birthday_month: Option<i16>,
     /// 生日日期。
-    birthday_day: Option<u8>,
+    birthday_day: Option<i16>,
     /// 发布时间，RFC3339 格式。
     release_time: Option<String>,
     /// 性别。
