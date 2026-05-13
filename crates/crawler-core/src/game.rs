@@ -62,12 +62,16 @@ impl Game {
             Game::Nap => {
                 "https://webstatic.mihoyo.com/upload/op-public/2022/09/17/a425b5ccb44c72e342cf3a6e488dc445_771169193410538499.jpg"
             }
-            Game::Bh3 => "http://static.event.mihoyo.com/bh3_homepage/images/pic/picture/01.jpg",
+            Game::Bh3 => {
+                "https://act-webstatic.mihoyo.com/puzzle/bh3/pz_FDsvN8kyhS/resource/puzzle/2026/03/27/ad6dc2af66bae10afd268f86603f84b0_4045905029964201048.png"
+            }
             Game::Wd => {
                 "https://webstatic.mihoyo.com/upload/wd-wiki/2022/02/28/127729/120b5d4273290a9425ccb280becbf6c3_4216098022458368688.png"
             }
             Game::Planet => "https://planet.mihoyo.com/_nuxt/img/poster.d17fa7b.png",
-            Game::Hna => "http://static.event.mihoyo.com/bh3_homepage/images/pic/picture/01.jpg",
+            Game::Hna => {
+                "https://upload-bbs.miyoushe.com/upload/2025/09/16/448340772/8e2c68eeb179834289efd613346e981f_5799133728414255025.jpg"
+            }
         }
     }
 }

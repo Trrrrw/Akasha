@@ -1,4 +1,8 @@
-use sea_orm::{IntoActiveModel, entity::prelude::*};
+use sea_orm::{
+    ActiveValue::{Set, Unchanged},
+    IntoActiveModel,
+    entity::prelude::*,
+};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -34,10 +38,13 @@ impl Entity {
     pub async fn set_value(key: &str, value: String) -> Result<(), sea_orm::DbErr> {
         let conn = crate::pool();
 
-        if let Some(mut meta) = Self::find_by_id(key.to_string()).one(conn).await? {
-            meta.value = value;
-            let active_model: ActiveModel = meta.into();
-            active_model.update(conn).await?;
+        if Self::find_by_id(key.to_string()).one(conn).await?.is_some() {
+            ActiveModel {
+                key: Unchanged(key.to_string()),
+                value: Set(value),
+            }
+            .update(conn)
+            .await?;
         } else {
             Self::insert(
                 Model {

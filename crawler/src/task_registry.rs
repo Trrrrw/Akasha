@@ -95,7 +95,10 @@ async fn update_last_crawler_at() -> Result<()> {
         .with_timezone(&offset)
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
+    info!(last_crawler_at = %value, "更新爬虫完成时间");
     meta::Entity::set_value(LAST_CRAWLER_AT_KEY, value).await?;
+    let stored_value = meta::Entity::get_value_by_key(LAST_CRAWLER_AT_KEY).await?;
+    info!(last_crawler_at = ?stored_value, "爬虫完成时间写入完成");
 
     Ok(())
 }
