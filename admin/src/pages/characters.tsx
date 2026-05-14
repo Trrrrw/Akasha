@@ -43,12 +43,17 @@ const PAGE_SIZE = 20;
 
 type CharacterItem = {
   character_code: string;
-  game_code: string;
+  game: {
+    code: string;
+    name_zh: string;
+    name_en: string;
+  };
   name: string;
   birthday_month: number | null;
   birthday_day: number | null;
   release_time: string | null;
   gender: string | null;
+  cv: string | null;
   extra: string | null;
 };
 
@@ -63,6 +68,8 @@ type CharacterFilters = {
   name: string;
   game: string;
   gender: "all" | "male" | "female" | "unknown";
+  cv: string;
+  release: string;
 };
 
 type CharacterSheetMode = "create" | "edit";
@@ -75,6 +82,7 @@ type CharacterFormState = {
   birthdayDay: string;
   releaseTime: string;
   gender: "none" | "male" | "female" | "unknown";
+  cv: string;
   extra: string;
 };
 
@@ -83,6 +91,8 @@ export default function CharactersPage() {
     name: "",
     game: "",
     gender: "all",
+    cv: "",
+    release: "",
   });
   const [appliedFilters, setAppliedFilters] = useState<CharacterFilters>(filters);
   const [page, setPage] = useState(1);
@@ -117,17 +127,15 @@ export default function CharactersPage() {
       });
 
       appendParam(params, "game", appliedFilters.game);
+      appendParam(params, "name", appliedFilters.name);
+      appendParam(params, "cv", appliedFilters.cv);
+      appendParam(params, "release", appliedFilters.release);
 
-      const searchName = appliedFilters.name.trim();
-      const endpoint = searchName ? "/characters/search" : "/characters";
-
-      if (searchName) {
-        params.set("name", searchName);
-      } else if (appliedFilters.gender !== "all") {
+      if (appliedFilters.gender !== "all") {
         params.set("gender", appliedFilters.gender);
       }
 
-      const res = await fetch(`${endpoint}?${params}`, {
+      const res = await fetch(`/characters?${params}`, {
         signal: controller.signal,
       });
 
@@ -168,6 +176,8 @@ export default function CharactersPage() {
       name: "",
       game: "",
       gender: "all",
+      cv: "",
+      release: "",
     };
 
     setFilters(nextFilters);
@@ -195,7 +205,7 @@ export default function CharactersPage() {
     <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <div className="flex items-start gap-3 rounded-lg border bg-background p-4">
         <form
-          className="grid min-w-0 flex-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px_auto_auto]"
+          className="grid min-w-0 flex-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px_160px_160px_auto_auto]"
           onSubmit={submitFilters}
         >
           <Input
@@ -234,6 +244,23 @@ export default function CharactersPage() {
               <SelectItem value="unknown">未知</SelectItem>
             </SelectContent>
           </Select>
+          <Input
+            value={filters.cv}
+            placeholder="CV"
+            onChange={(event) =>
+              setFilters((value) => ({ ...value, cv: event.target.value }))
+            }
+          />
+          <Input
+            value={filters.release}
+            placeholder="发布时间"
+            onChange={(event) =>
+              setFilters((value) => ({
+                ...value,
+                release: event.target.value,
+              }))
+            }
+          />
           <Button type="submit">筛选</Button>
           <Button type="button" variant="outline" onClick={resetFilters}>
             重置
@@ -246,10 +273,11 @@ export default function CharactersPage() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-background">
-        <div className="grid grid-cols-[minmax(0,1fr)_140px_120px_120px_180px] border-b bg-muted/40 px-4 py-2 text-sm font-medium text-muted-foreground">
+        <div className="grid grid-cols-[minmax(0,1fr)_140px_120px_140px_120px_180px] border-b bg-muted/40 px-4 py-2 text-sm font-medium text-muted-foreground">
           <div>角色</div>
           <div>游戏</div>
           <div>性别</div>
+          <div>CV</div>
           <div>生日</div>
           <div>发布时间</div>
         </div>
@@ -265,9 +293,9 @@ export default function CharactersPage() {
           ) : null}
           {data?.characters.map((item) => (
             <button
-              key={`${item.game_code}:${item.character_code}`}
+              key={`${item.game.code}:${item.character_code}`}
               type="button"
-              className="grid w-full grid-cols-[minmax(0,1fr)_140px_120px_120px_180px] items-center border-b px-4 py-3 text-left text-sm transition-colors hover:bg-muted/50"
+              className="grid w-full grid-cols-[minmax(0,1fr)_140px_120px_140px_120px_180px] items-center border-b px-4 py-3 text-left text-sm transition-colors hover:bg-muted/50"
               onClick={() => openEditSheet(item)}
             >
               <div className="min-w-0 pr-4">
@@ -276,9 +304,14 @@ export default function CharactersPage() {
                   {item.character_code}
                 </div>
               </div>
-              <div className="text-muted-foreground">{item.game_code}</div>
+              <div className="truncate text-muted-foreground">
+                {item.game.name_zh}
+              </div>
               <div className="text-muted-foreground">
                 {formatGender(item.gender)}
+              </div>
+              <div className="truncate text-muted-foreground">
+                {item.cv ?? "-"}
               </div>
               <div className="text-muted-foreground">
                 {formatBirthday(item)}
@@ -514,6 +547,17 @@ function CharacterEditorSheet({
               </Field>
             </div>
 
+            <Field>
+              <FieldLabel htmlFor="character-cv">CV</FieldLabel>
+              <Input
+                id="character-cv"
+                value={form.cv}
+                onChange={(event) =>
+                  setForm((value) => ({ ...value, cv: event.target.value }))
+                }
+              />
+            </Field>
+
             <BasicDatePicker
               id="character-release-time"
               label="发布时间"
@@ -616,12 +660,13 @@ function CharacterDeleteDialog({
 function createCharacterForm(item: CharacterItem | null): CharacterFormState {
   return {
     characterCode: item?.character_code ?? "",
-    gameCode: item?.game_code ?? "",
+    gameCode: item?.game.code ?? "",
     name: item?.name ?? "",
     birthdayMonth: item?.birthday_month?.toString() ?? "",
     birthdayDay: item?.birthday_day?.toString() ?? "",
     releaseTime: item?.release_time ?? "",
     gender: (item?.gender as CharacterFormState["gender"]) ?? "none",
+    cv: item?.cv ?? "",
     extra: item?.extra ?? "",
   };
 }
@@ -633,6 +678,7 @@ function characterPayload(form: CharacterFormState, mode: CharacterSheetMode) {
     birthday_day: optionalNumber(form.birthdayDay),
     release_time: optionalText(form.releaseTime),
     gender: form.gender === "none" ? null : form.gender,
+    cv: optionalText(form.cv),
     extra: optionalText(form.extra),
   };
 
@@ -661,7 +707,7 @@ function characterSaveUrl(mode: CharacterSheetMode, item: CharacterItem | null) 
 
 function characterItemUrl(item: CharacterItem) {
   return `/admin/data/characters/${encodeURIComponent(
-    item.game_code,
+    item.game.code,
   )}/${encodeURIComponent(item.character_code)}`;
 }
 

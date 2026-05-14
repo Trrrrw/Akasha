@@ -35,6 +35,7 @@ pub async fn post(
             .map(parse_datetime)
             .transpose()?),
         gender: Set(req.gender.as_deref().map(parse_gender).transpose()?),
+        cv: Set(req.cv),
         extra: Set(req.extra),
         ..Default::default()
     }
@@ -77,6 +78,9 @@ pub async fn put(
     }
     if let Some(value) = req.gender {
         active.gender = Set(value.as_deref().map(parse_gender).transpose()?);
+    }
+    if let Some(value) = req.cv {
+        active.cv = Set(value);
     }
     if let Some(value) = req.extra {
         active.extra = Set(value);
@@ -158,6 +162,7 @@ pub struct CreateCharacterRequest {
     birthday_day: Option<i16>,
     release_time: Option<String>,
     gender: Option<String>,
+    cv: Option<String>,
     extra: Option<String>,
 }
 
@@ -168,6 +173,7 @@ pub struct UpdateCharacterRequest {
     birthday_day: Option<Option<i16>>,
     release_time: Option<Option<String>>,
     gender: Option<Option<String>>,
+    cv: Option<Option<String>>,
     extra: Option<Option<String>>,
 }
 

@@ -15,6 +15,7 @@ pub struct Model {
     pub birthday_day: Option<i16>,
     pub release_time: Option<DateTimeWithTimeZone>,
     pub gender: Option<Gender>,
+    pub cv: Option<String>,
     pub extra: Option<String>,
 
     #[sea_orm(belongs_to, from = "game_code", to = "game_code")]
