@@ -64,6 +64,8 @@ jobs:
           context: .
           target: akasha
           push: ${{ github.event_name == 'push' }}
+          cache-from: type=gha,scope=akasha-backend
+          cache-to: type=gha,scope=akasha-backend,mode=max
           tags: |
             ghcr.io/trrrrw/${{ env.AKASHA_BACKEND_IMAGE_NAME }}:latest
             ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.AKASHA_BACKEND_IMAGE_NAME }}:latest
@@ -74,6 +76,8 @@ jobs:
           context: .
           target: worker
           push: ${{ github.event_name == 'push' }}
+          cache-from: type=gha,scope=akasha-worker
+          cache-to: type=gha,scope=akasha-worker,mode=max
           tags: |
             ghcr.io/trrrrw/${{ env.AKASHA_WORKER_IMAGE_NAME }}:latest
             ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.AKASHA_WORKER_IMAGE_NAME }}:latest

@@ -1,12 +1,15 @@
 import { getRequiredEnv } from "./config";
 import { jitterDelayMs, jitterMinimumDelayMs } from "./delay";
+import { log } from "./logger";
 import type { QueryParams } from "./types";
 import { buildUrl } from "./url";
 
+/** 配置请求失败后的重试策略 */
 export type RetryOptions = {
   maxRetries?: number;
   baseDelayMs?: number;
   maxDelayMs?: number;
+  timeoutMs?: number;
 };
 
 type RequestInitFactory = RequestInit | (() => RequestInit);
@@ -14,6 +17,7 @@ type RequestInitFactory = RequestInit | (() => RequestInit);
 const BACKEND_USER_AGENT = "Akasha-Worker/1.0";
 const EXTERNAL_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0";
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 
 /** 请求 Akasha 后端接口 */
 export function backendFetch(
@@ -67,30 +71,58 @@ async function fetchWithRetry(
   const maxRetries = retry.maxRetries ?? 10;
   const baseDelayMs = retry.baseDelayMs ?? 1_000;
   const maxDelayMs = retry.maxDelayMs ?? 30_000;
+  const timeoutMs = retry.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const totalAttempts = maxRetries + 1;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     let retryResponse: Response | undefined;
 
     try {
-      const response = await fetch(input, resolveRequestInit(init));
+      const requestInit = resolveRequestInit(init);
+      const signal = requestInit.signal ?? AbortSignal.timeout(timeoutMs);
+
+      log.debug(
+        "http",
+        `requesting ${requestInit.method ?? "GET"} ${input} (${attempt + 1}/${totalAttempts})`,
+      );
+      const response = await fetch(input, { ...requestInit, signal });
 
       if (!shouldRetry(response) || attempt === maxRetries) {
         return response;
       }
 
       retryResponse = response;
+      const delayMs = retryDelay(attempt, baseDelayMs, maxDelayMs, retryResponse);
+      log.warn(
+        "http",
+        `received ${response.status} from ${input} (${attempt + 1}/${totalAttempts}), retrying in ${formatDelay(delayMs)}`,
+      );
+      await Bun.sleep(delayMs);
     } catch (error) {
       if (attempt === maxRetries) {
         throw error;
       }
-    }
 
-    await Bun.sleep(
-      retryDelay(attempt, baseDelayMs, maxDelayMs, retryResponse),
-    );
+      const delayMs = retryDelay(attempt, baseDelayMs, maxDelayMs);
+      log.warn(
+        "http",
+        `request failed for ${input} (${attempt + 1}/${totalAttempts}): ${formatError(error)}, retrying in ${formatDelay(delayMs)}`,
+      );
+      await Bun.sleep(delayMs);
+    }
   }
 
   throw new Error("Fetch retry exhausted");
+}
+
+/** 将重试等待时间格式化为便于日志阅读的文本 */
+function formatDelay(delayMs: number): string {
+  return `${(delayMs / 1_000).toFixed(1)}s`;
+}
+
+/** 提取异常中适合写入日志的说明 */
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function resolveRequestInit(init: RequestInitFactory): RequestInit {
