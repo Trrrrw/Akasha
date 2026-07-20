@@ -1,0 +1,40 @@
+[package]
+name = "akasha-backend"
+description = "米哈游游戏信息聚合 API"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "akasha_backend"
+path = "src/lib.rs"
+
+[[bin]]
+name = "akasha-backend"
+path = "src/main.rs"
+
+[dependencies]
+akasha-db = { path = "../db" }
+anyhow = { workspace = true }
+axum = { workspace = true }
+base64 = "0.22"
+chrono = { workspace = true }
+hex = "0.4"
+hmac = "0.13"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "rustls"] }
+rss = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.11"
+tokio = { workspace = true }
+tower = "0.5"
+tower-http = { version = "0.6.8", features = ["fs", "trace", "request-id"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+urlencoding = "2"
+utoipa = { version = "5.4.0", features = ["axum_extras"] }
+utoipa-axum = "0.2.0"
+utoipa-scalar = { version = "0.3.0", features = ["axum"] }

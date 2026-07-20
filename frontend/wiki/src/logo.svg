@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Mint green spiral leaf logo">
+  <defs>
+    <linearGradient id="mintStroke" x1="270" y1="790" x2="770" y2="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F2FFFF"/>
+      <stop offset="0.32" stop-color="#9DFFF3"/>
+      <stop offset="0.68" stop-color="#34E6D5"/>
+      <stop offset="1" stop-color="#80FFF1"/>
+    </linearGradient>
+    <linearGradient id="mintFill" x1="390" y1="585" x2="670" y2="335" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EFFFFE"/>
+      <stop offset="0.48" stop-color="#A8FFF4"/>
+      <stop offset="1" stop-color="#37EAD8"/>
+    </linearGradient>
+    <filter id="softGlow" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.05  0 0 0 0 1.00  0 0 0 0 0.88  0 0 0 0.85 0" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="outerGlow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="22" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.13  0 0 0 0 1.00  0 0 0 0 0.86  0 0 0 0.35 0"/>
+    </filter>
+  </defs>
+
+  <!-- Transparent square 1:1 canvas -->
+
+  <g filter="url(#outerGlow)" opacity="0.95">
+    <path d="M437 823C442 757 417 712 366 674C302 626 260 587 276 527C291 470 347 433 407 451C471 470 499 541 460 604"
+          stroke="#45F5E4" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M457 823C551 762 656 693 735 591C821 481 814 345 736 266C665 194 545 196 478 267C421 328 417 407 466 443C516 480 598 460 619 370"
+          stroke="#45F5E4" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g filter="url(#softGlow)">
+    <!-- heart-like spiral / main ornamental stroke -->
+    <path d="M437 823C442 757 417 712 366 674C302 626 260 587 276 527C291 470 347 433 407 451C471 470 499 541 460 604"
+          stroke="url(#mintStroke)" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M457 823C551 762 656 693 735 591C821 481 814 345 736 266C665 194 545 196 478 267C421 328 417 407 466 443C516 480 598 460 619 370"
+          stroke="url(#mintStroke)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- pointed lower inner slash -->
+    <path d="M458 824C503 745 524 658 504 575C493 530 470 491 438 459C447 543 441 640 468 711"
+          fill="url(#mintFill)" opacity="0.84"/>
+    <path d="M438 459C487 506 525 564 536 627C546 683 522 736 468 771"
+          stroke="#26E7D6" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.75"/>
+
+    <!-- central leaf/petal details -->
+    <path d="M506 443C556 447 608 442 672 484C616 523 563 518 506 443Z"
+          fill="url(#mintFill)" opacity="0.88"/>
+    <path d="M506 443C556 447 608 442 672 484C616 523 563 518 506 443Z"
+          stroke="#22E5D5" stroke-width="7" stroke-linejoin="round" opacity="0.8"/>
+
+    <path d="M489 399C545 364 585 318 607 265C622 334 610 388 576 424C548 454 516 460 489 399Z"
+          fill="url(#mintFill)" opacity="0.82"/>
+    <path d="M489 399C545 364 585 318 607 265C622 334 610 388 576 424"
+          stroke="#25E7D7" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity="0.72"/>
+
+    <path d="M466 485C516 531 551 594 540 679C496 625 468 568 466 485Z"
+          fill="url(#mintFill)" opacity="0.84"/>
+    <path d="M466 485C516 531 551 594 540 679"
+          stroke="#22E6D5" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity="0.78"/>
+
+    <!-- subtle highlight strokes -->
+    <path d="M300 519C322 477 368 461 407 476C455 494 472 544 450 591"
+          stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" opacity="0.42"/>
+    <path d="M493 292C543 221 649 218 719 286C787 351 799 471 737 573"
+          stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" opacity="0.28"/>
+  </g>
+</svg>

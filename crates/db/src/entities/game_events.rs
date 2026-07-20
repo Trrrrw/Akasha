@@ -1,22 +1,26 @@
 use sea_orm::entity::prelude::*;
 
+use crate::entities::games;
+
 #[sea_orm::model]
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "game_events")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub title: String,
+    pub game_id: String,
     #[sea_orm(primary_key)]
-    pub start: DateTimeWithTimeZone,
-    pub end: Option<DateTimeWithTimeZone>,
-    pub game_code: String,
-    pub desc: Option<String>,
-    pub extra: Option<String>,
+    pub id: String,
 
-    #[sea_orm(belongs_to, from = "game_code", to = "game_code")]
-    pub game: HasOne<super::games::Entity>,
+    pub title: String,
+    pub introduction: Option<String>,
+    pub main_text: Option<String>,
+    pub start: Option<DateTimeWithTimeZone>,
+    pub end: Option<DateTimeWithTimeZone>,
+    pub tags: Option<Vec<String>>,
+    pub url: Option<String>,
+
+    #[sea_orm(belongs_to, from = "game_id", to = "id")]
+    pub game: HasOne<games::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
-
-impl Entity {}

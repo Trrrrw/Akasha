@@ -1,29 +1,26 @@
-use sea_orm::{IntoActiveModel, entity::prelude::*};
+use sea_orm::entity::prelude::*;
+
+use crate::entities::{games, news, news_tags};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "news_sources")]
 pub struct Model {
     #[sea_orm(primary_key)]
+    pub id: String,
+    #[sea_orm(primary_key)]
+    pub game_id: String,
+
     pub name: String,
-    pub display_name: String,
-    pub description: String,
+    pub index: i64,
+
+    #[sea_orm(belongs_to, from = "game_id", to = "id")]
+    pub game: HasOne<games::Entity>,
 
     #[sea_orm(has_many)]
-    pub news: HasMany<super::news_items::Entity>,
+    pub news: HasMany<news::Entity>,
+    #[sea_orm(has_many)]
+    pub tags: HasMany<news_tags::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
-
-impl Entity {
-    pub async fn create_if_not_exists(source: Model) -> Result<(), sea_orm::DbErr> {
-        let conn = crate::pool();
-
-        Self::insert(source.into_active_model())
-            .on_conflict_do_nothing()
-            .exec_without_returning(conn)
-            .await?;
-
-        Ok(())
-    }
-}

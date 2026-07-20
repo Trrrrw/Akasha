@@ -1,9 +1,16 @@
 # --- 编译admin前端 ---
-FROM oven/bun:alpine AS frontend-builder
-WORKDIR /app/admin
-COPY admin/package.json admin/bun.lock ./
+FROM oven/bun:alpine AS bun-builder
+WORKDIR /app/frontend/admin
+COPY frontend/admin/package.json frontend/admin/bun.lock ./
 RUN bun install
-COPY admin/ .
+COPY frontend/admin/ .
+RUN bun run build
+
+# --- 编译wiki前端 ---
+WORKDIR /app/frontend/wiki
+COPY frontend/wiki/package.json frontend/wiki/bun.lock ./
+RUN bun install
+COPY frontend/wiki/ .
 RUN bun run build
 
 # --- Chef准备 ---
@@ -30,22 +37,31 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
     cargo build --release --workspace && \
     mkdir -p /app/bin && \
-    cp /app/target/release/Akasha /app/bin/Akasha && \
-    cp /app/target/release/crawler /app/bin/crawler
+    cp /app/target/release/akasha-backend /app/bin/akasha-backend
 
 # --- Akasha ---
 FROM alpine:latest AS akasha
 LABEL authors="Trrrrw"
 WORKDIR /app
-COPY --from=frontend-builder /app/admin/dist /app/admin/dist
-COPY --from=builder /app/bin/Akasha /app/Akasha
-RUN chmod +x /app/Akasha
-CMD ["./Akasha"]
+
+COPY assets ./assets
+COPY --from=bun-builder /app/frontend/admin/dist /app/frontend/admin/dist
+COPY --from=bun-builder /app/frontend/wiki/dist /app/frontend/wiki/dist
+COPY --from=builder /app/bin/akasha-backend /app/akasha-backend
+
+RUN chmod +x /app/akasha-backend
+CMD ["./akasha-backend"]
 
 # --- 爬虫 ---
-FROM alpine:latest AS crawler
+FROM oven/bun:alpine AS worker
 LABEL authors="Trrrrw"
-WORKDIR /app
-COPY --from=builder /app/bin/crawler /app/crawler
-RUN chmod +x /app/crawler
-CMD ["./crawler", "serve"]
+WORKDIR /app/worker
+
+COPY worker/package.json worker/bun.lock worker/bunfig.toml ./
+RUN bun install --frozen-lockfile --production
+
+COPY worker/src ./src
+COPY worker/run.sh ./run.sh
+
+RUN chmod +x run.sh
+CMD ["sh", "./run.sh"]

@@ -1,45 +1,34 @@
-use sea_orm::{IntoActiveModel, entity::prelude::*};
+use sea_orm::entity::prelude::*;
+
+use crate::entities::{news, news_tags};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "news_tags_link")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub news_remote_id: String,
+    pub game_id: String,
+
     #[sea_orm(primary_key)]
-    pub news_game_belong: String,
+    pub news_id: String,
     #[sea_orm(primary_key)]
-    pub news_source_belong: String,
+    pub source_id: String,
+
     #[sea_orm(primary_key)]
-    pub tag_title: String,
-    #[sea_orm(primary_key)]
-    pub tag_game_belong: String,
+    pub name: String,
 
     #[sea_orm(
         belongs_to,
-        from = "(news_remote_id, news_game_belong, news_source_belong)",
-        to = "(remote_id, game_code, source)"
+        from = "(game_id, news_id, source_id)",
+        to = "(game_id, id, source_id)"
     )]
-    pub news: Option<super::news_items::Entity>,
+    pub news: Option<news::Entity>,
     #[sea_orm(
         belongs_to,
-        from = "(tag_title, tag_game_belong)",
-        to = "(title, game_code)"
+        from = "(name, game_id, source_id)",
+        to = "(name, game_id, source_id)"
     )]
-    pub tag: Option<super::tags::Entity>,
+    pub tag: Option<news_tags::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
-
-impl Entity {
-    pub async fn create_if_not_exists(link: Model) -> Result<(), sea_orm::DbErr> {
-        let conn = crate::pool();
-
-        Self::insert(link.into_active_model())
-            .on_conflict_do_nothing()
-            .exec_without_returning(conn)
-            .await?;
-
-        Ok(())
-    }
-}

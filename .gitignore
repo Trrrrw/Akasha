@@ -1,8 +1,9 @@
 target/
 .temp/
 .agents/
+.codex/
 
 .env
-.codex
-docker-compose.yml
+AGENTS.md
 docker-compose.dev.yml
+skills-lock.json

@@ -1,0 +1,71 @@
+import { Navigate, Outlet, useLocation } from "react-router";
+import { useCallback, useEffect, useState } from "react";
+
+import setupCover from "@/assets/setup-cover.webp";
+import logoUrl from "@/logo.svg";
+
+type SetupStatus = {
+  initialized: boolean;
+};
+
+type AuthPageState = "checking" | "setup" | "login";
+
+export type AuthPageOutletContext = {
+  refreshSetupStatus: () => Promise<void>;
+};
+
+export default function AuthPage() {
+  const location = useLocation();
+  const [state, setState] = useState<AuthPageState>("checking");
+
+  const refreshSetupStatus = useCallback(async () => {
+    const res = await fetch("/admin/auth/setup-status");
+    const data = (await res.json()) as SetupStatus;
+
+    setState(data.initialized ? "login" : "setup");
+  }, []);
+
+  useEffect(() => {
+    refreshSetupStatus().catch(() => {
+      setState("setup");
+    });
+  }, [refreshSetupStatus]);
+
+  if (state === "checking") {
+    return null;
+  }
+
+  if (state === "setup" && location.pathname !== "/setup") {
+    return <Navigate to="/setup" replace />;
+  }
+
+  if (state === "login" && location.pathname !== "/login") {
+    return <Navigate to="/login" replace />;
+  }
+
+  return (
+    <div className="grid min-h-svh lg:grid-cols-2">
+      <div className="flex flex-col gap-4 p-6 md:p-10">
+        <div className="flex justify-center gap-2 md:justify-start">
+          <a className="flex items-center gap-2 font-medium">
+            <img src={logoUrl} alt="" className="size-6 rounded-md" aria-hidden="true" />
+            Akasha
+          </a>
+        </div>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="w-full max-w-xs">
+            <Outlet context={{ refreshSetupStatus } satisfies AuthPageOutletContext} />
+          </div>
+        </div>
+      </div>
+      <div className="relative hidden bg-muted lg:block">
+        <img
+          src={setupCover}
+          alt="Image"
+          className="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
+          draggable="false"
+        />
+      </div>
+    </div>
+  );
+}

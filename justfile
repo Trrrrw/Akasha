@@ -1,4 +1,4 @@
-set dotenv-load
+set dotenv-load := true
 
 backend:
     clear
@@ -23,18 +23,18 @@ dev:
 
 build:
     clear
-    cd admin && bun run build
+    # cd admin && bun run build
     cargo build --release --workspace
 
 build-docker:
     clear
-    docker build --target akasha -t akasha:latest .
-    docker build --target crawler -t akasha-crawler:latest .
+    docker build --target akasha -t akasha-backend:latest .
+    docker build --target worker -t akasha-worker:latest .
 
 run-docker: build-docker
     clear
     docker compose -f docker-compose.dev.yml up -d
-    
+
 check:
     cargo fmt
     cargo check

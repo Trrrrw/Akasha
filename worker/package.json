@@ -1,0 +1,22 @@
+{
+    "name": "worker",
+    "type": "module",
+    "private": true,
+    "scripts": {
+        "news": "bun run src/news/index.ts",
+        "char": "bun run src/character/index.ts",
+        "event": "bun run src/event/index.ts",
+        "build": "bun run build.ts"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^7"
+    },
+    "peerDependencies": {},
+    "dependencies": {
+        "cheerio": "^1.2.0",
+        "genshin-data": "^0.56.0",
+        "hsr-data": "^3.7.0",
+        "mwn": "^3.0.3"
+    }
+}
