@@ -30,11 +30,12 @@ services:
     image: akasha-backend:latest
     restart: unless-stopped
     depends_on:
-      postgres:
+      akasha-db:
         condition: service_healthy
     ports:
       - "7040:7040"
     environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       POSTGRES_HOST: akasha-db
       POSTGRES_PORT: "5432"
       POSTGRES_USER: ${POSTGRES_USER}
@@ -46,17 +47,24 @@ services:
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
       GITHUB_OAUTH_REDIRECT_URL: ${GITHUB_OAUTH_REDIRECT_URL}
       WORKER_TOKEN: ${WORKER_TOKEN}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:7040/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
 
-  worker:
+  akasha-worker:
     container_name: akasha-worker
     image: akasha-worker:latest
     restart: unless-stopped
     depends_on:
-      postgres:
+      akasha-db:
         condition: service_healthy
       akasha-backend:
-        condition: service_started
+        condition: service_healthy
     environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       WORKER_TOKEN: ${WORKER_TOKEN}
       MIYOUSHE_COOKIE: ${MIYOUSHE_COOKIE}
       BACKEND_BASE: http://akasha-backend:7040

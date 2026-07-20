@@ -7,7 +7,10 @@ use tracing_subscriber::{EnvFilter, fmt};
 async fn main() -> Result<()> {
     let config = Config::from_env().context("failed to load configuration")?;
 
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::builder()
+        .with_env_var("LOG_LEVEL")
+        .with_default_directive(tracing::Level::INFO.into())
+        .from_env_lossy();
     fmt().with_env_filter(filter).init();
 
     let listener = TcpListener::bind(config.bind_addr)
