@@ -106,6 +106,8 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
           command_timeout: 40m
           script: |
+            set -e
+
             cd '${{ secrets.DEPLOY_PATH }}'
 
             docker login --username='${{ secrets.ALIYUN_REGISTRY_USERNAME }}' \
