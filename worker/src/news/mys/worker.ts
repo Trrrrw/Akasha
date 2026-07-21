@@ -46,6 +46,13 @@ type MysNewsType = (typeof NEWS_TYPES)[number];
 /** 各新闻类型已同步到的最新帖子 ID */
 type MysBoundaries = Partial<Record<`${MysNewsType}`, string>>;
 
+/** 当前正在翻页的新闻类型断点 */
+type MysInProgress = {
+  type: MysNewsType;
+  nextCursor: string;
+  firstPostId: string;
+};
+
 /** 米游社新闻抓取与标签重算的持久化断点 */
 type MysCheckpoint = {
   version: 1;
@@ -53,6 +60,7 @@ type MysCheckpoint = {
   completedTypes?: MysNewsType[];
   parserVersion?: number;
   tagReclassificationOffset?: number;
+  inProgress?: MysInProgress;
 };
 
 /** 创建按新闻类型分页同步的米游社新闻 worker */
@@ -92,6 +100,7 @@ export function createMysWorker<
             checkpoint.completedTypes,
             config.parserVersion,
             tagReclassificationOffset,
+            checkpoint.inProgress,
           ),
         );
         await reclassifyNewsTags({
@@ -106,6 +115,7 @@ export function createMysWorker<
                 checkpoint.completedTypes,
                 config.parserVersion,
                 nextOffset,
+                checkpoint.inProgress,
               ),
             ),
         });
@@ -114,6 +124,8 @@ export function createMysWorker<
             checkpoint.boundaries,
             checkpoint.completedTypes,
             config.parserVersion,
+            undefined,
+            checkpoint.inProgress,
           ),
         );
       }
@@ -121,9 +133,15 @@ export function createMysWorker<
       // 复制断点，避免在本轮中直接修改已解析状态
       const boundaries = { ...checkpoint.boundaries };
       const completedTypes = new Set(checkpoint.completedTypes ?? []);
+      let inProgress = checkpoint.inProgress;
 
       // 依次同步米游社要求分别请求的三种新闻类型
       for (const type of NEWS_TYPES) {
+        // 当前 type 已经翻完部分页面时，先从该 type 续跑
+        if (inProgress && type < inProgress.type) {
+          continue;
+        }
+
         if (
           context.phase === "initial_backfill" &&
           completedTypes.has(type)
@@ -136,16 +154,22 @@ export function createMysWorker<
           config,
           type,
           context.phase === "incremental" ? boundaries[type] : undefined,
+          inProgress?.type === type ? inProgress : undefined,
           context,
-          () =>
+          (nextInProgress) =>
             createCheckpoint(
               boundaries,
               context.phase === "initial_backfill"
                 ? [...completedTypes]
                 : undefined,
               config.parserVersion,
+              undefined,
+              nextInProgress,
             ),
         );
+
+        // 当前 type 已完整结束，后续 checkpoint 不再保留其页级断点
+        inProgress = undefined;
 
         if (firstPostId) {
           boundaries[type] = firstPostId;
@@ -177,13 +201,15 @@ async function syncType<Groups extends readonly NewsTagGroup[]>(
   config: MysWorkerConfig<Groups>,
   type: MysNewsType,
   boundaryPostId: string | undefined,
+  resume: MysInProgress | undefined,
   context: NewsWorkerContext,
-  currentCheckpoint: () => MysCheckpoint,
+  currentCheckpoint: (inProgress: MysInProgress) => MysCheckpoint,
 ): Promise<string | undefined> {
-  let listCursor = "";
-  let firstPostId: string | undefined;
+  let listCursor = resume?.nextCursor ?? "";
+  let firstPostId: string | undefined = resume?.firstPostId;
 
   while (true) {
+    // 请求当前 offset 的新闻列表
     const firstPage = listCursor === "";
     const response = await externalFetch(
       firstPage ? MYS_FIRST_PAGE_ENDPOINT : MYS_NEXT_PAGE_ENDPOINT,
@@ -206,6 +232,17 @@ async function syncType<Groups extends readonly NewsTagGroup[]>(
     }
 
     const data = (await response.json()) as MysNewsResponse;
+
+    // 米游社末页仍可能返回 is_last=false 与递增 cursor，但列表为空
+    if (data.data.list.length === 0) {
+      log.info(
+        "news",
+        `mys ${config.gameId}/${config.sourceId}/type-${type} reached an empty page at cursor ${listCursor || "first"}`,
+      );
+      break;
+    }
+
+    // 处理当前页新闻并检查已保存边界
     let reachedBoundary = false;
 
     for (const item of data.data.list) {
@@ -222,12 +259,19 @@ async function syncType<Groups extends readonly NewsTagGroup[]>(
       logUpdateResult(result);
     }
 
+    // 遇到已保存边界、空页或接口末页时结束当前 type
     if (reachedBoundary || data.data.is_last || !data.data.last_id) {
       break;
     }
 
     listCursor = data.data.last_id;
-    await context.saveCheckpoint(currentCheckpoint());
+    await context.saveCheckpoint(
+      currentCheckpoint({
+        type,
+        nextCursor: listCursor,
+        firstPostId: firstPostId!,
+      }),
+    );
     await Bun.sleep(LIST_REQUEST_DELAY_MS);
   }
 
@@ -267,7 +311,30 @@ function parseCheckpoint(value: unknown): MysCheckpoint {
     isNonNegativeInteger(value.tagReclassificationOffset)
       ? value.tagReclassificationOffset
       : undefined,
+    parseInProgress(value.inProgress),
   );
+}
+
+/** 从未验证数据中提取当前新闻类型的分页断点 */
+function parseInProgress(value: unknown): MysInProgress | undefined {
+  if (!isRecord(value) || !isNewsType(value.type)) {
+    return undefined;
+  }
+
+  if (
+    typeof value.nextCursor !== "string" ||
+    !value.nextCursor ||
+    typeof value.firstPostId !== "string" ||
+    !value.firstPostId
+  ) {
+    return undefined;
+  }
+
+  return {
+    type: value.type,
+    nextCursor: value.nextCursor,
+    firstPostId: value.firstPostId,
+  };
 }
 
 /** 从未验证数据中提取各类型的帖子边界 */
@@ -292,6 +359,7 @@ function createCheckpoint(
   completedTypes?: MysNewsType[],
   parserVersion?: number,
   tagReclassificationOffset?: number,
+  inProgress?: MysInProgress,
 ): MysCheckpoint {
   return {
     version: 1,
@@ -301,6 +369,7 @@ function createCheckpoint(
     ...(tagReclassificationOffset === undefined
       ? {}
       : { tagReclassificationOffset }),
+    ...(inProgress === undefined ? {} : { inProgress }),
   };
 }
 

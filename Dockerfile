@@ -1,15 +1,15 @@
 # --- 编译admin前端 ---
 FROM oven/bun:alpine AS bun-builder
 WORKDIR /app/frontend/admin
-COPY frontend/admin/package.json frontend/admin/bun.lock ./
-RUN bun install
+COPY frontend/admin/package.json frontend/admin/bun.lock frontend/admin/bunfig.toml ./
+RUN bun install --frozen-lockfile
 COPY frontend/admin/ .
 RUN bun run build
 
 # --- 编译wiki前端 ---
 WORKDIR /app/frontend/wiki
-COPY frontend/wiki/package.json frontend/wiki/bun.lock ./
-RUN bun install
+COPY frontend/wiki/package.json frontend/wiki/bun.lock frontend/wiki/bunfig.toml ./
+RUN bun install --frozen-lockfile
 COPY frontend/wiki/ .
 RUN bun run build
 
@@ -31,7 +31,8 @@ COPY --from=chef /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo chef cook --release --recipe-path recipe.json
-COPY . .
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo build --release --workspace && \
@@ -51,16 +52,24 @@ COPY --from=builder /app/bin/akasha-backend /app/akasha-backend
 RUN chmod +x /app/akasha-backend
 CMD ["./akasha-backend"]
 
-# --- 爬虫 ---
+# --- worker ---
+# --- 安装worker依赖 ---
+FROM oven/bun:alpine AS worker-deps
+WORKDIR /app/worker
+COPY worker/package.json worker/bun.lock worker/bunfig.toml ./
+RUN bun install --frozen-lockfile --production
+# --- worker runtime ---
 FROM oven/bun:alpine AS worker
 LABEL authors="Trrrrw"
 WORKDIR /app/worker
 
-COPY worker/package.json worker/bun.lock worker/bunfig.toml ./
-RUN bun install --frozen-lockfile --production
-
+COPY --from=worker-deps /app/worker/node_modules ./node_modules
+COPY worker/package.json ./package.json
 COPY worker/src ./src
 COPY worker/run.sh ./run.sh
 
+ENV TZ=Asia/Shanghai
+RUN apk add --no-cache tzdata
+
 RUN chmod +x run.sh
-CMD ["sh", "./run.sh"]
+CMD ["sh", "run.sh"]

@@ -1,36 +1,32 @@
 import { createCachedData } from "./cache";
 
+/** 游戏列表接口中供 wiki 使用的基础信息 */
 export type GameSummary = {
-  slug: string;
-  title: string;
-  subtitle: string;
-  image: string;
+  id: string;
+  name: string;
+  index: number;
+  cover: string | null;
+  icon: string | null;
 };
 
-const games: GameSummary[] = [
-  {
-    slug: "gi",
-    title: "原神",
-    subtitle: "向着星辰与深渊",
-    image: "https://uploadstatic.mihoyo.com/contentweb/20190608/2019060812321786065.jpg",
-  },
-  {
-    slug: "hsr",
-    title: "崩坏：星穹铁道",
-    subtitle: "愿此行，终抵群星。",
-    image:
-      "https://webstatic.mihoyo.com/upload/op-public/2023/01/24/b74ae5e3a8e8b021b67ea26e27a215f2_184072581688764639.png",
-  },
-  {
-    slug: "zzz",
-    title: "绝区零",
-    subtitle: "世界全剧终，欢迎来到新艾利都！",
-    image:
-      "https://webstatic.mihoyo.com/upload/op-public/2022/09/17/a425b5ccb44c72e342cf3a6e488dc445_771169193410538499.jpg",
-  },
-];
+/** 游戏列表接口的响应结构 */
+type ListGamesResponse = {
+  items: GameSummary[];
+};
 
-const gameResource = createCachedData(async () => games);
+/** 获取后端已收录的游戏列表 */
+async function fetchGames(): Promise<GameSummary[]> {
+  const response = await fetch("/api/v1/games");
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch games: ${response.status}`);
+  }
+
+  const data = (await response.json()) as ListGamesResponse;
+  return data.items;
+}
+
+const gameResource = createCachedData(fetchGames);
 
 export const getGames = gameResource.getData;
 export const useGames = gameResource.useData;

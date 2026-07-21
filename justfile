@@ -1,46 +1,43 @@
 set dotenv-load := true
+set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
 
-backend:
-    clear
-    cargo run -p Akasha
+[windows]
+db-up:
+    pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/windows/db-up.ps1
 
-crawler +args:
-    clear
-    cargo run -p crawler -- {{ args }}
+[windows]
+backend: db-up
+    pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/windows/start-dev.ps1
 
-admin:
-    cd admin && bun run dev
+[windows]
+worker:
+    pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/windows/run-worker.ps1
 
-dev:
-    clear
-    bash -c '\
-      trap "kill 0" INT TERM EXIT; \
-      cargo run -p Akasha & \
-      cargo run -p crawler -- serve & \
-      (cd admin && bun run dev) & \
-      wait \
-    '
-
+[windows]
 build:
-    clear
-    # cd admin && bun run build
-    cargo build --release --workspace
+    pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/windows/build-package.ps1
 
+[windows]
 build-docker:
-    clear
     docker build --target akasha -t akasha-backend:latest .
     docker build --target worker -t akasha-worker:latest .
 
+[windows]
 run-docker: build-docker
-    clear
     docker compose -f docker-compose.dev.yml up -d
 
+[windows]
 check:
-    cargo fmt
+    cargo fmt --check
     cargo check
-    cd admin && bun run build
+    Push-Location frontend/admin; try { bun run build } finally { Pop-Location }
+    Push-Location frontend/wiki; try { bun run build } finally { Pop-Location }
+    Push-Location worker; try { bun run check } finally { Pop-Location }
 
+[windows]
 clean:
-    clear
-    rm -rf admin/dist
+    Remove-Item -LiteralPath dist -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath frontend/admin/dist -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath frontend/wiki/dist -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath worker/dist -Recurse -Force -ErrorAction SilentlyContinue
     cargo clean

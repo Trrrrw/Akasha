@@ -18,11 +18,10 @@ export default function HomePage() {
         {error !== null && <p className="text-sm text-destructive">游戏列表加载失败。</p>}
         {games?.map((game) => (
           <GameCard
-            key={game.slug}
-            href={`/games/${game.slug}`}
-            image={game.image}
-            subtitle={game.subtitle}
-            title={game.title}
+            key={game.id}
+            href={`/games/${game.id}`}
+            image={game.cover}
+            title={game.name}
           />
         ))}
       </section>

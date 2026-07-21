@@ -2,6 +2,7 @@ target/
 .temp/
 .agents/
 .codex/
+dist/
 
 .env
 AGENTS.md

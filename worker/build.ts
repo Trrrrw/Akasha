@@ -24,7 +24,7 @@ const workers = [
 await rm(distDir, { recursive: true, force: true });
 await mkdir(distDir, { recursive: true });
 
-await copyFile("src/run.sh", join(distDir, "run.sh"));
+await copyFile("run.sh", join(distDir, "run.sh"));
 await chmod(join(distDir, "run.sh"), 0o755);
 
 for (const worker of workers) {

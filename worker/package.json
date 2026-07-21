@@ -6,6 +6,7 @@
         "news": "bun run src/news/index.ts",
         "char": "bun run src/character/index.ts",
         "event": "bun run src/event/index.ts",
+        "check": "tsc --noEmit",
         "build": "bun run build.ts"
     },
     "devDependencies": {

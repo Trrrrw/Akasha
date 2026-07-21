@@ -21,9 +21,9 @@ function GameLayoutContent() {
   const { data: games } = useGames();
   const { data: gameModules } = useGameModules();
   const { items: pageAnchors } = usePageToc();
-  const currentGame = games?.find((item) => item.slug === game);
+  const currentGame = games?.find((item) => item.id === game);
   const currentModule = gameModules?.find((item) => item.id === moduleId);
-  const gameTitle = currentGame?.title ?? game;
+  const gameTitle = currentGame?.name ?? game;
   const pageTitle = currentModule?.label ?? gameTitle;
   const hasPageAnchors = pageAnchors.length > 0;
 
