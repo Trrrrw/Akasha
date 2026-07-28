@@ -33,7 +33,10 @@ pub(super) async fn list(
     let rows = use_cases::list(state.db())
         .await
         .map_err(|error| AppError::Internal(error.into()))?;
-    let items = rows.into_iter().map(GameResponse::from).collect::<Vec<_>>();
+    let items = rows
+        .into_iter()
+        .map(|game| GameResponse::from_summary(game, &state.config().asset_base_url))
+        .collect::<Vec<_>>();
 
     Ok(Json(ListResponse {
         total: items.len() as u64,
@@ -63,5 +66,8 @@ pub(super) async fn detail(
         .map_err(|error| AppError::Internal(error.into()))?
         .ok_or_else(|| AppError::NotFound(format!("game {game_id} not found")))?;
 
-    Ok(Json(GameDetailResponse::from(game)))
+    Ok(Json(GameDetailResponse::from_summary(
+        game,
+        &state.config().asset_base_url,
+    )))
 }

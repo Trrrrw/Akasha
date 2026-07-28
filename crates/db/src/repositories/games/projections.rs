@@ -1,4 +1,4 @@
-use crate::models::NewsStats;
+use crate::models::{NewsCount, RecentNews};
 
 #[derive(Debug, Clone)]
 pub struct GameSummary {
@@ -8,5 +8,6 @@ pub struct GameSummary {
     pub index: i64,
     pub cover: Option<String>,
     pub icon: Option<String>,
-    pub news_stats: NewsStats,
+    pub news_count: NewsCount,
+    pub recent_news: RecentNews,
 }

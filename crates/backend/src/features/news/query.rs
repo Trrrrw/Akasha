@@ -25,7 +25,7 @@ pub(super) struct NewsListQuery {
     pub source_id: String,
     /// 标题关键词，空格分隔，- 前缀表示排除词
     pub q: Option<String>,
-    /// 标签，逗号分隔
+    /// 标签，逗号分隔，__untagged__ 表示未分类
     pub tags: Option<String>,
     /// 筛选新闻类型
     pub news_type: Option<String>,

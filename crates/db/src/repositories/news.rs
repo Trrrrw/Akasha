@@ -9,4 +9,7 @@ pub use projections::{
     ListNewsFilter, NewsSourceProjection, NewsSourceStats, NewsSourceSummary, NewsSummary,
     UpdateNewsResult,
 };
-pub use queries::{find_by_id, find_source_by_id, list, list_sources, source_stats};
+pub use queries::{
+    UNTAGGED_TAG_FILTER, find_by_id, find_source_by_id, list, list_sources, recent_by_game,
+    recent_by_tag, recent_untagged, source_stats,
+};

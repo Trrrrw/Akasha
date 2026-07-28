@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 #[derive(Clone)]
 pub struct Config {
     pub bind_addr: SocketAddr,
+    pub asset_base_url: String,
     pub database: DbOptions,
     pub auth: AuthConfig,
     pub github: GitHubConfig,
@@ -37,6 +38,8 @@ impl Config {
             bind_addr: env_or("BIND_ADDR", "0.0.0.0:7040")
                 .parse()
                 .context("BIND_ADDR must be a socket address")?,
+
+            asset_base_url: required("ASSET_BASE_URL")?.trim_end_matches('/').to_owned(),
 
             database: DbOptions {
                 pg_host: env_or("POSTGRES_HOST", "127.0.0.1"),

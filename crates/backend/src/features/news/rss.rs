@@ -1,11 +1,14 @@
 use akasha_db::repositories::news::NewsSummary;
 use rss::{ChannelBuilder, GuidBuilder, ItemBuilder};
 
+use crate::http::response::public_asset_url;
+
 pub(super) fn build(
     game_id: &str,
     source_id: &str,
     rows: Vec<NewsSummary>,
     game_cover: Option<String>,
+    asset_base_url: &str,
 ) -> String {
     let last_build_date = rows.first().map(|item| item.publish_time.to_rfc2822());
 
@@ -26,7 +29,7 @@ pub(super) fn build(
                 ))
                 .description(description(
                     news.intro,
-                    news.cover.or_else(|| game_cover.clone()),
+                    public_asset_url(asset_base_url, news.cover.or_else(|| game_cover.clone())),
                     news.video_url,
                     news.news_type,
                 ));

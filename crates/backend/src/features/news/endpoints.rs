@@ -62,11 +62,17 @@ pub(super) async fn list_tags(
     Path(GamePath { game_id }): Path<GamePath>,
     Query(NewsTagsQuery { source_id }): Query<NewsTagsQuery>,
 ) -> Result<Json<NewsTagsResponse>, AppError> {
-    let rows = use_cases::list_tags(state.db(), &game_id, &source_id)
+    let (rows, game_cover) = use_cases::list_tags(state.db(), &game_id, &source_id)
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
 
-    Ok(Json(NewsTagsResponse::from_rows(game_id, source_id, rows)))
+    Ok(Json(NewsTagsResponse::from_rows(
+        game_id,
+        source_id,
+        rows,
+        game_cover.as_deref(),
+        &state.config().asset_base_url,
+    )))
 }
 
 #[utoipa::path(
@@ -104,7 +110,13 @@ pub(super) async fn list(
         .map_err(|error| AppError::Internal(error.into()))?;
     let items = rows
         .into_iter()
-        .map(|news| NewsItemResponse::from_summary(news, game_cover.as_deref()))
+        .map(|news| {
+            NewsItemResponse::from_summary(
+                news,
+                game_cover.as_deref(),
+                &state.config().asset_base_url,
+            )
+        })
         .collect();
 
     Ok(Json(PageResponse {
@@ -143,6 +155,7 @@ pub(super) async fn detail(
     Ok(Json(NewsItemResponse::from_summary(
         news,
         game_cover.as_deref(),
+        &state.config().asset_base_url,
     )))
 }
 
@@ -169,7 +182,13 @@ pub(super) async fn rss(
     let (_, rows, game_cover) = use_cases::list(state.db(), filter)
         .await
         .map_err(|error| AppError::Internal(error.into()))?;
-    let document = rss::build(&game_id, &source_id, rows, game_cover);
+    let document = rss::build(
+        &game_id,
+        &source_id,
+        rows,
+        game_cover,
+        &state.config().asset_base_url,
+    );
 
     Ok((
         [(header::CONTENT_TYPE, "application/rss+xml; charset=utf-8")],

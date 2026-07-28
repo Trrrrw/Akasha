@@ -67,6 +67,7 @@ pub(crate) async fn update_news(
         Json(NewsItemResponse::from_summary(
             result.news,
             game_cover.as_deref(),
+            &state.config().asset_base_url,
         )),
     ))
 }

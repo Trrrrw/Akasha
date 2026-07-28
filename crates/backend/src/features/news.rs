@@ -1,5 +1,5 @@
 pub(crate) mod admin;
-mod dto;
+pub(crate) mod dto;
 pub(crate) mod endpoints;
 mod query;
 mod rss;

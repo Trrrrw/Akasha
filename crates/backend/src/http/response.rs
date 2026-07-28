@@ -1,6 +1,17 @@
 use serde::Serialize;
 use utoipa::ToSchema;
 
+/// 将站内资源路径转换为公开地址
+pub fn public_asset_url(asset_base_url: &str, value: Option<String>) -> Option<String> {
+    value.map(|value| {
+        if value.starts_with('/') && !value.starts_with("//") {
+            format!("{asset_base_url}{value}")
+        } else {
+            value
+        }
+    })
+}
+
 #[derive(Serialize, ToSchema)]
 #[schema(description = "列表数据响应")]
 pub struct ListResponse<T> {

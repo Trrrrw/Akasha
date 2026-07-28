@@ -1,5 +1,9 @@
-set dotenv-load := true
+set dotenv-load
 set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
+
+[windows]
+restore-db backup container:
+    pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Restore-1PanelPostgres.ps1 "{{ backup }}" "{{ container }}"
 
 [windows]
 db-up:

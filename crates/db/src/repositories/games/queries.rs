@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use sea_orm::{
     ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect,
-    entity::prelude::DateTimeWithTimeZone,
     sea_query::{Expr, Func},
 };
 
 use crate::{
     Db, DbError,
     entities::{games, news},
-    models::NewsStats,
+    models::{NewsCount, RecentNews},
+    repositories::news::recent_by_game,
 };
 
 use super::projections::GameSummary;
@@ -21,17 +21,18 @@ pub async fn list(db: &Db) -> Result<Vec<GameSummary>, DbError> {
         .all(db.conn())
         .await
         .map_err(DbError::Query)?;
-    let news_counts = news_stats(db, None).await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            let counts = news_counts
-                .get(row.id.as_str())
-                .copied()
-                .unwrap_or_default();
-            into_summary(row, counts)
-        })
-        .collect())
+    let news_counts = news_counts(db, None).await?;
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let news_count = news_counts
+            .get(row.id.as_str())
+            .copied()
+            .unwrap_or_default();
+        let recent_news = recent_by_game(db, &row.id).await?;
+        items.push(into_summary(row, news_count, recent_news));
+    }
+
+    Ok(items)
 }
 
 /// 获取指定游戏的信息
@@ -43,11 +44,12 @@ pub async fn find_by_id(db: &Db, game_id: &str) -> Result<Option<GameSummary>, D
     else {
         return Ok(None);
     };
-    let counts = news_stats(db, Some(&row.id))
+    let news_count = news_counts(db, Some(&row.id))
         .await?
         .remove(row.id.as_str())
         .unwrap_or_default();
-    Ok(Some(into_summary(row, counts)))
+    let recent_news = recent_by_game(db, &row.id).await?;
+    Ok(Some(into_summary(row, news_count, recent_news)))
 }
 
 /// 获取指定游戏的封面
@@ -63,16 +65,17 @@ pub async fn find_cover_by_id(db: &Db, game_id: &str) -> Result<Option<String>, 
 }
 
 #[derive(Debug, FromQueryResult)]
-struct NewsStatsRow {
+struct NewsCountRow {
     game_id: String,
     total: i64,
     video: i64,
     article: i64,
-    latest_publish_time: Option<DateTimeWithTimeZone>,
-    latest_video_publish_time: Option<DateTimeWithTimeZone>,
 }
 
-async fn news_stats(db: &Db, game_id: Option<&str>) -> Result<HashMap<String, NewsStats>, DbError> {
+async fn news_counts(
+    db: &Db,
+    game_id: Option<&str>,
+) -> Result<HashMap<String, NewsCount>, DbError> {
     let mut query = news::Entity::find()
         .select_only()
         .column(news::Column::GameId)
@@ -85,23 +88,12 @@ async fn news_stats(db: &Db, game_id: Option<&str>) -> Result<HashMap<String, Ne
             Func::sum(Expr::case(news::Column::NewsType.eq(news::NewsType::Article), 1).finally(0)),
             "article",
         )
-        .column_as(news::Column::PublishTime.max(), "latest_publish_time")
-        .expr_as(
-            Func::max(
-                Expr::case(
-                    news::Column::NewsType.eq(news::NewsType::Video),
-                    Expr::col(news::Column::PublishTime),
-                )
-                .finally(Expr::null()),
-            ),
-            "latest_video_publish_time",
-        )
         .group_by(news::Column::GameId);
     if let Some(game_id) = game_id {
         query = query.filter(news::Column::GameId.eq(game_id));
     }
     let rows = query
-        .into_model::<NewsStatsRow>()
+        .into_model::<NewsCountRow>()
         .all(db.conn())
         .await
         .map_err(DbError::Query)?;
@@ -110,19 +102,17 @@ async fn news_stats(db: &Db, game_id: Option<&str>) -> Result<HashMap<String, Ne
         .map(|row| {
             (
                 row.game_id,
-                NewsStats {
+                NewsCount {
                     total: row.total as u64,
                     video: row.video as u64,
                     article: row.article as u64,
-                    latest_publish_time: row.latest_publish_time,
-                    latest_video_publish_time: row.latest_video_publish_time,
                 },
             )
         })
         .collect())
 }
 
-fn into_summary(row: games::Model, counts: NewsStats) -> GameSummary {
+fn into_summary(row: games::Model, news_count: NewsCount, recent_news: RecentNews) -> GameSummary {
     GameSummary {
         id: row.id,
         name_en: row.name_en,
@@ -130,6 +120,7 @@ fn into_summary(row: games::Model, counts: NewsStats) -> GameSummary {
         index: row.index,
         cover: row.cover,
         icon: row.icon,
-        news_stats: counts,
+        news_count,
+        recent_news,
     }
 }

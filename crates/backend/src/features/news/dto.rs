@@ -5,14 +5,23 @@ use akasha_db::repositories::{
 use serde::Serialize;
 use utoipa::ToSchema;
 
+use crate::http::response::public_asset_url;
+
 #[derive(Serialize, ToSchema)]
 #[schema(description = "新闻数量统计")]
-pub struct NewsStats {
-    total: u64,
-    video: u64,
-    article: u64,
-    latest_publish_time: Option<String>,
-    latest_video_publish_time: Option<String>,
+pub struct NewsCount {
+    pub(crate) total: u64,
+    pub(crate) article: u64,
+    pub(crate) video: u64,
+}
+
+#[derive(Serialize, ToSchema)]
+#[schema(description = "标签的最近新闻")]
+pub struct RecentNews {
+    /// 最新文章
+    pub(crate) article: Vec<NewsItemResponse>,
+    /// 最新视频
+    pub(crate) video: Vec<NewsItemResponse>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -44,26 +53,38 @@ pub(super) struct NewsTagResponse {
     /// 排序
     index: i64,
     /// 新闻数量
-    news_count: NewsStats,
+    news_count: NewsCount,
+    /// 最近新闻
+    recent: RecentNews,
 }
 
-impl From<NewsTagProjection> for NewsTagResponse {
-    fn from(value: NewsTagProjection) -> Self {
+impl NewsTagResponse {
+    fn from_projection(
+        value: NewsTagProjection,
+        game_cover: Option<&str>,
+        asset_base_url: &str,
+    ) -> Self {
         NewsTagResponse {
             name: value.name,
             index: value.index,
-            news_count: NewsStats {
-                total: value.news_stats.total,
-                video: value.news_stats.video,
-                article: value.news_stats.article,
-                latest_publish_time: value
-                    .news_stats
-                    .latest_publish_time
-                    .map(|time| time.to_rfc3339()),
-                latest_video_publish_time: value
-                    .news_stats
-                    .latest_video_publish_time
-                    .map(|time| time.to_rfc3339()),
+            news_count: NewsCount {
+                total: value.news_count.total,
+                article: value.news_count.article,
+                video: value.news_count.video,
+            },
+            recent: RecentNews {
+                article: value
+                    .recent
+                    .article
+                    .into_iter()
+                    .map(|news| NewsItemResponse::from_summary(news, game_cover, asset_base_url))
+                    .collect(),
+                video: value
+                    .recent
+                    .video
+                    .into_iter()
+                    .map(|news| NewsItemResponse::from_summary(news, game_cover, asset_base_url))
+                    .collect(),
             },
         }
     }
@@ -97,13 +118,15 @@ impl NewsTagsResponse {
         game_id: String,
         source_id: String,
         rows: Vec<NewsTagProjection>,
+        game_cover: Option<&str>,
+        asset_base_url: &str,
     ) -> Self {
         let mut groups: Vec<NewsTagGroupResponse> = Vec::new();
 
         for row in rows {
             let group_name = row.group.clone();
             let group_index = row.group_index;
-            let tag = NewsTagResponse::from(row);
+            let tag = NewsTagResponse::from_projection(row, game_cover, asset_base_url);
 
             if let Some(group) = groups.last_mut()
                 && group.name == group_name
@@ -145,7 +168,7 @@ impl NewsListMeta {
 
 #[derive(Serialize, ToSchema)]
 #[schema(description = "新闻基础信息")]
-pub(super) struct NewsItemResponse {
+pub(crate) struct NewsItemResponse {
     id: String,
     title: String,
     publish_time: Option<String>,
@@ -158,13 +181,20 @@ pub(super) struct NewsItemResponse {
 }
 
 impl NewsItemResponse {
-    pub(super) fn from_summary(value: NewsSummary, game_cover: Option<&str>) -> Self {
+    pub(crate) fn from_summary(
+        value: NewsSummary,
+        game_cover: Option<&str>,
+        asset_base_url: &str,
+    ) -> Self {
         Self {
             id: value.id,
             title: value.title,
             publish_time: Some(value.publish_time.to_rfc3339()),
             source_url: value.source_url,
-            cover: value.cover.or_else(|| game_cover.map(str::to_owned)),
+            cover: public_asset_url(
+                asset_base_url,
+                value.cover.or_else(|| game_cover.map(str::to_owned)),
+            ),
             news_type: value.news_type,
             tags: value.tags,
             video_url: value.video_url,

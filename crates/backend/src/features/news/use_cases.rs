@@ -18,8 +18,11 @@ pub(crate) async fn list_tags(
     db: &Db,
     game_id: &str,
     source_id: &str,
-) -> Result<Vec<NewsTagProjection>, DbError> {
-    news_tags::list_tags(db, game_id, source_id).await
+) -> Result<(Vec<NewsTagProjection>, Option<String>), DbError> {
+    let rows = news_tags::list_tags(db, game_id, source_id).await?;
+    let game_cover = games::find_cover_by_id(db, game_id).await?;
+
+    Ok((rows, game_cover))
 }
 
 pub(crate) async fn list(

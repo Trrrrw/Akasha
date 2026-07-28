@@ -1,12 +1,18 @@
 use sea_orm::entity::prelude::*;
 
+use crate::repositories::news::NewsSummary;
+
 #[derive(Debug, Clone, Copy, Default)]
-pub struct NewsStats {
+pub struct NewsCount {
     pub total: u64,
-    pub video: u64,
     pub article: u64,
-    pub latest_publish_time: Option<DateTimeWithTimeZone>,
-    pub latest_video_publish_time: Option<DateTimeWithTimeZone>,
+    pub video: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecentNews {
+    pub article: Vec<NewsSummary>,
+    pub video: Vec<NewsSummary>,
 }
 
 #[derive(Debug, Default)]
