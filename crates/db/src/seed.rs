@@ -111,16 +111,10 @@ const NEWS_SOURCE_SEEDS: &[NewsSourceSeed] = &[
         index: 2,
     },
     NewsSourceSeed {
-        id: "web_cn",
-        game_id: "hna",
-        name: "官方网站",
-        index: 1,
-    },
-    NewsSourceSeed {
         id: "mys",
         game_id: "hna",
         name: "米游社",
-        index: 2,
+        index: 1,
     },
     NewsSourceSeed {
         id: "mys",

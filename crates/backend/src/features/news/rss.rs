@@ -44,9 +44,9 @@ pub(super) fn build(
 
     ChannelBuilder::default()
         .title("Akasha News")
-        .link("http://akasha.trrw.tech/")
+        .link("https://akasha.trrw.cn/")
         .description("米哈游游戏信息聚合 API")
-        .generator("Trrrrw -- trrw.tech".to_string())
+        .generator("Trrrrw -- trrw.cn".to_string())
         .language("zh-cn".to_string())
         .ttl(Some("5".to_string()))
         .last_build_date(last_build_date)

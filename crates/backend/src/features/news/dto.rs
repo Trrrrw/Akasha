@@ -2,6 +2,7 @@ use akasha_db::repositories::{
     news::{NewsSummary, projections::NewsSourceProjection},
     news_tags::NewsTagProjection,
 };
+use chrono::FixedOffset;
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -186,10 +187,16 @@ impl NewsItemResponse {
         game_cover: Option<&str>,
         asset_base_url: &str,
     ) -> Self {
+        let china_timezone = FixedOffset::east_opt(8 * 60 * 60).expect("valid UTC+8 offset");
         Self {
             id: value.id,
             title: value.title,
-            publish_time: Some(value.publish_time.to_rfc3339()),
+            publish_time: Some(
+                value
+                    .publish_time
+                    .with_timezone(&china_timezone)
+                    .to_rfc3339(),
+            ),
             source_url: value.source_url,
             cover: public_asset_url(
                 asset_base_url,
