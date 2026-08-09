@@ -8,7 +8,6 @@ Akasha 是一个使用 Rust 和 PostgreSQL 实现的游戏信息聚合后端。�
 - `crates/application`：与 HTTP、SeaORM 无关的应用服务、数据模型和 repository 端口
 - `crates/db`：SeaORM Entity、PostgreSQL repository 和 schema 同步
 - `crates/mys`：米游社视频临时签名客户端
-- `worker`：本地可选的私有 worker 仓库，不属于当前公开仓库
 
 ## 环境配置
 
@@ -35,7 +34,7 @@ cp .env.example .env
 | `GITHUB_CLIENT_SECRET` | 无 | GitHub OAuth 客户端密钥 |
 | `GITHUB_OAUTH_REDIRECT_URL` | 无 | GitHub OAuth 回调地址 |
 | `ADMIN_GITHUB_ID` | 无 | 自动授予管理员权限的 GitHub 用户 ID |
-| `WORKER_TOKEN` | 无 | worker 写入接口凭据，至少 32 字节 |
+| `WORKER_TOKEN` | 无 | 内部写入接口凭据，至少 32 字节 |
 | `MIYOUSHE_COOKIE` | 无 | 获取米游社视频临时签名所需的 Cookie |
 | `RATE_LIMIT_TRUSTED_PROXY_IPS` | 空 | 可提供 `X-Forwarded-For` 的可信反向代理 IP，多个值用逗号分隔 |
 | `NEWS_VIDEO_RATE_LIMIT_PER_MINUTE` | `30` | 视频详情接口每分钟为每个客户端 IP 补充的请求令牌数 |
@@ -58,14 +57,12 @@ Windows：
 
 ```powershell
 just backend
-just worker
 ```
 
 Linux：
 
 ```bash
 ./scripts/linux/start-dev.sh
-cd worker && bun run news
 ```
 
 运行检查：
@@ -74,7 +71,6 @@ cd worker && bun run news
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cd worker && bun run check && bun test src/news
 ```
 
 后端启动后可访问：
@@ -82,26 +78,18 @@ cd worker && bun run check && bun test src/news
 - 健康检查：`http://localhost:7040/healthz`
 - Scalar API 文档：`http://localhost:7040/scalar`
 
-## Docker 开发环境
+## Docker 运行
 
-拥有私有 worker 仓库时，将其克隆到项目的 `worker/` 目录，然后构建两个开发镜像：
-
-```bash
-docker build -f Dockerfile.dev --target akasha -t akasha-backend:dev .
-docker build -f Dockerfile.dev --target worker -t akasha-worker:dev .
-```
-
-启动服务：
+构建并启动 PostgreSQL 与后端：
 
 ```bash
-docker compose up -d
+docker compose up --build -d
 ```
 
 查看日志：
 
 ```bash
 docker logs -f akasha-backend
-docker logs -f akasha-worker
 ```
 
 ## 后端发布镜像
@@ -110,21 +98,4 @@ docker logs -f akasha-worker
 
 ```bash
 docker build --target akasha -t akasha-backend:latest .
-```
-
-## 手动重洗新闻数据
-
-重洗任务从数据库的 `raw_data` 重新解析指定字段，不会自动随解析规则版本变化触发
-
-例如仅重算 5 条原神官网视频时长：
-
-```bash
-cd worker
-bun run src/news/reprocess.ts \
-  --game ys \
-  --source web_cn \
-  --type video \
-  --fields video_duration \
-  --limit 5 \
-  --dry-run
 ```

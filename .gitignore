@@ -3,7 +3,6 @@ target/
 .agents/
 .codex/
 dist/
-/worker/
 
 .env
 AGENTS.md

@@ -7,6 +7,5 @@ target
 data
 .temp
 dist
-worker
 **/node_modules
 **/dist

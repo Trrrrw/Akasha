@@ -27,10 +27,9 @@ services:
 
   akasha-backend:
     container_name: akasha-backend
-    image: akasha-backend:dev
+    image: akasha-backend:latest
     build:
       context: .
-      dockerfile: Dockerfile.dev
       target: akasha
     restart: unless-stopped
     depends_on:
@@ -66,21 +65,3 @@ services:
       timeout: 3s
       retries: 12
       start_period: 15s
-
-  akasha-worker:
-    container_name: akasha-worker
-    image: akasha-worker:dev
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
-      target: worker
-    restart: unless-stopped
-    depends_on:
-      akasha-backend:
-        condition: service_healthy
-    environment:
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      WORKER_TOKEN: ${WORKER_TOKEN}
-      MIYOUSHE_COOKIE: ${MIYOUSHE_COOKIE}
-      BACKEND_BASE: http://akasha-backend:7040
-      WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-3600}

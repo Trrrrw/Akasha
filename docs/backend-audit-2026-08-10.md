@@ -6,7 +6,6 @@
 - `crates/application` 的应用服务、普通 Rust 模型和 Repository 端口
 - `crates/db` 的 SeaORM Entity、查询、写入和审计日志
 - `crates/mys` 的米游社 API 封装
-- `worker/src/news` 的同步、手动重处理、视频时长和标签解析
 - Docker、Compose、Windows 启动与恢复脚本
 
 ## 当前架构结论
@@ -17,9 +16,9 @@
 
 ## 本轮已直接修复
 
-- 认证密钥和 worker token 至少要求 32 字节
+- 认证密钥和内部写入 token 至少要求 32 字节
 - JWT 显式限定 HS256，并移除未使用且存在安全公告的 RSA 实现依赖
-- OAuth state 与 worker token 使用固定时间比较
+- OAuth state 与内部写入 token 使用固定时间比较
 - HTTPS 部署的认证 Cookie 添加 `Secure`，并保留本地 HTTP 开发能力
 - refresh token 轮换时锁定旧记录，避免同一 token 并发换取多个新 token
 - 请求日志不再记录可能包含 OAuth code、state 等敏感值的查询字符串
@@ -41,9 +40,9 @@
 
 Repository 目前只有统一基础设施错误，refresh token 不存在、过期、已撤销或用户禁用都会最终映射为 HTTP 500。应给认证端口增加明确结果类型，将凭据无效映射为 401，并在已轮换 token 再次出现时撤销同一 token family
 
-### 2. worker 凭据按身份和权限拆分
+### 2. 内部写入凭据按身份和权限拆分
 
-所有 worker 当前共享一个静态 `WORKER_TOKEN`，任一 worker 泄露后可调用全部内部写入接口，也可以自行填写审计中的 worker ID。应改为可轮换的独立凭据，并把来源、游戏和写入能力绑定到凭据
+所有内部写入方当前共享一个静态 `WORKER_TOKEN`，凭据泄露后可调用全部内部写入接口。应改为可轮换的独立凭据，并把来源、游戏和写入能力绑定到凭据
 
 ## 后续中优先级
 
@@ -88,7 +87,4 @@ refresh token 表没有定期清理和单用户会话上限。`ADMIN_GITHUB_ID` 
 - `cargo fmt --all -- --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`：24 项 Rust 测试通过
-- `bun run check`
-- `bun test src/news`：22 项 worker 测试通过
-- `bunx prettier --check "src/**/*.ts"`
 - Windows PowerShell 脚本语法检查通过
