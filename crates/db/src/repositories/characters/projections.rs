@@ -1,42 +1,19 @@
-use crate::{entities::characters, models::Gender};
+use crate::entities::characters;
 
-pub struct CharListFilter {
-    pub game_id: String,
-    /// 关键词，匹配角色名/简介
-    pub q: Option<String>,
-    /// 性别
-    pub gender: Option<String>,
-    /// CV
-    pub cv: Option<String>,
-    /// 生日月份
-    pub birthday_month: Option<i16>,
-    pub limit: u64,
-    pub offset: u64,
-}
+pub(crate) use akasha_application::characters::{CharacterListFilter, CharacterSummary};
 
-#[derive(Debug, Clone)]
-pub struct CharSummary {
-    pub id: String,
-    pub item_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub gender: Option<Gender>,
-    pub birthday_month: Option<i16>,
-    pub birthday_day: Option<i16>,
-    pub cv: Option<String>,
-}
-
-impl From<characters::Model> for CharSummary {
+impl From<characters::Model> for CharacterSummary {
+    /// 将角色 Entity 映射为应用层角色读取模型
     fn from(row: characters::Model) -> Self {
         Self {
             id: row.id,
             item_id: row.item_id,
             name: row.name,
             description: row.description,
-            gender: row.gender,
+            gender: row.gender.map(|gender| gender.as_str().to_owned()),
             birthday_month: row.birthday_month,
             birthday_day: row.birthday_day,
-            cv: row.cv,
+            voice_actor: row.cv,
         }
     }
 }

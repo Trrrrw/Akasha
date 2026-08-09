@@ -4,16 +4,22 @@ use sea_orm::{
 
 use crate::{Db, DbError, entities::characters, models::TitleQuery};
 
-use super::projections::{CharListFilter, CharSummary};
+use super::projections::{CharacterListFilter, CharacterSummary};
 
-pub async fn get_char_list(
+/// 列出符合给定应用层筛选条件的角色
+pub async fn list_characters(
     db: &Db,
-    filter: CharListFilter,
-) -> Result<(u64, Vec<CharSummary>), DbError> {
+    filter: CharacterListFilter,
+) -> Result<(u64, Vec<CharacterSummary>), DbError> {
     let mut query =
         characters::Entity::find().filter(characters::Column::GameId.eq(&filter.game_id));
-    if let Some(q) = filter.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
-        let title_query = TitleQuery::new(q);
+    if let Some(search_term) = filter
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|search_term| !search_term.is_empty())
+    {
+        let title_query = TitleQuery::new(search_term);
         for keyword in title_query.includes {
             query = query.filter(
                 Condition::any()
@@ -32,13 +38,13 @@ pub async fn get_char_list(
     if let Some(gender) = filter.gender {
         query = query.filter(characters::Column::Gender.eq(gender));
     }
-    if let Some(cv) = filter
-        .cv
+    if let Some(voice_actor) = filter
+        .voice_actor
         .as_deref()
         .map(str::trim)
-        .filter(|cv| !cv.is_empty())
+        .filter(|voice_actor| !voice_actor.is_empty())
     {
-        query = query.filter(characters::Column::Cv.contains(cv));
+        query = query.filter(characters::Column::Cv.contains(voice_actor));
     }
     if let Some(month) = filter.birthday_month {
         query = query.filter(characters::Column::BirthdayMonth.eq(month));
@@ -50,10 +56,15 @@ pub async fn get_char_list(
         .map_err(DbError::Query)?;
     let rows = query
         .order_by(characters::Column::Name, sea_orm::Order::Asc)
+        .order_by_asc(characters::Column::Id)
+        .order_by_asc(characters::Column::ItemId)
         .limit(filter.limit)
         .offset(filter.offset)
         .all(db.conn())
         .await
         .map_err(DbError::Query)?;
-    Ok((total, rows.into_iter().map(CharSummary::from).collect()))
+    Ok((
+        total,
+        rows.into_iter().map(CharacterSummary::from).collect(),
+    ))
 }

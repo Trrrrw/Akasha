@@ -1,5 +1,12 @@
-target/
-data/
-.temp/
-**/node_modules/
-**/dist/
+.git
+.github
+.env
+.env.*
+!.env.example
+target
+data
+.temp
+dist
+worker
+**/node_modules
+**/dist

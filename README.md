@@ -1,44 +1,94 @@
 # Akasha
 
-Akasha 是一个米哈游游戏信息聚合服务，包含 HTTP API、MCP 工具接口和定时爬虫。后端负责对外提供查询接口，爬虫负责定时同步官网、米游社等来源的数据，数据库使用 PostgreSQL。
+Akasha 是一个使用 Rust 和 PostgreSQL 实现的游戏信息聚合后端。数据通过受保护的管理接口写入，公开仓库不包含具体数据采集实现
 
 ## 项目结构
 
-- `backend`：Axum 后端服务，默认监听 `0.0.0.0:7040`，内置 Scalar API 文档和 MCP 路由。
-- `crawler`：爬虫命令行和定时任务入口。
-- `crates/db`：SeaORM 数据库实体和连接池。
-- `crates/crawler-*`：具体爬虫实现 crate。
-- `crates/axum-mcp*`：把后端接口暴露为 MCP tools 的辅助 crate。
+- `crates/backend`：Axum HTTP 交付层、认证、OpenAPI 文档及应用装配
+- `crates/application`：与 HTTP、SeaORM 无关的应用服务、数据模型和 repository 端口
+- `crates/db`：SeaORM Entity、PostgreSQL repository 和 schema 同步
+- `crates/mys`：米游社视频临时签名客户端
+- `worker`：本地可选的私有 worker 仓库，不属于当前公开仓库
 
-## Docker 部署
+## 环境配置
 
-先构建后端和爬虫镜像：
-
-```bash
-docker build --target akasha -t akasha:latest .
-docker build --target crawler -t akasha-crawler:latest .
-```
-
-复制示例 Compose 文件，并填写 PostgreSQL 用户、密码和米游社 Cookie：
+复制示例配置后填写实际值：
 
 ```bash
-cp docker-compose.example.yml docker-compose.yml
+cp .env.example .env
 ```
 
-生成 jwt secret
+后端使用以下主要变量：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `BIND_ADDR` | `0.0.0.0:7040` | HTTP 监听地址 |
+| `ASSET_BASE_URL` | 无 | 对外可访问的后端根地址，例如 `https://example.com` |
+| `POSTGRES_HOST` | `127.0.0.1` | PostgreSQL 地址 |
+| `POSTGRES_PORT` | `5432` | PostgreSQL 端口 |
+| `POSTGRES_USER` | 无 | PostgreSQL 用户名 |
+| `POSTGRES_PASSWORD` | 无 | PostgreSQL 密码 |
+| `POSTGRES_DB` | `Akasha` | PostgreSQL 数据库名 |
+| `JWT_SECRET` | 无 | access token 签名密钥，至少 32 字节 |
+| `TOKEN_HASH_SECRET` | 无 | 敏感 token 哈希密钥，至少 32 字节 |
+| `GITHUB_CLIENT_ID` | 无 | GitHub OAuth 客户端 ID |
+| `GITHUB_CLIENT_SECRET` | 无 | GitHub OAuth 客户端密钥 |
+| `GITHUB_OAUTH_REDIRECT_URL` | 无 | GitHub OAuth 回调地址 |
+| `ADMIN_GITHUB_ID` | 无 | 自动授予管理员权限的 GitHub 用户 ID |
+| `WORKER_TOKEN` | 无 | worker 写入接口凭据，至少 32 字节 |
+| `MIYOUSHE_COOKIE` | 无 | 获取米游社视频临时签名所需的 Cookie |
+| `RATE_LIMIT_TRUSTED_PROXY_IPS` | 空 | 可提供 `X-Forwarded-For` 的可信反向代理 IP，多个值用逗号分隔 |
+| `NEWS_VIDEO_RATE_LIMIT_PER_MINUTE` | `30` | 视频详情接口每分钟为每个客户端 IP 补充的请求令牌数 |
+| `NEWS_VIDEO_RATE_LIMIT_BURST` | `10` | 视频详情接口允许每个客户端 IP 突发使用的令牌数 |
+| `NEWS_RSS_RATE_LIMIT_PER_MINUTE` | `12` | RSS 接口每分钟为每个客户端 IP 补充的请求令牌数 |
+| `NEWS_RSS_RATE_LIMIT_BURST` | `3` | RSS 接口允许每个客户端 IP 突发使用的令牌数 |
+| `NEWS_RSS_MYS_REFRESH_LIMIT` | `10` | 单次 RSS 请求最多触发的米游社视频签名刷新数，缓存命中不计入，设为 `0` 可禁用刷新 |
+
+反向代理部署时，应仅将实际代理的直连 IP 写入 `RATE_LIMIT_TRUSTED_PROXY_IPS`。未配置或请求并非来自可信代理时，后端会忽略 `X-Forwarded-For`，避免客户端伪造地址绕过限流
+
+可以分别生成三个随机密钥：
 
 ```bash
 openssl rand -base64 32
 ```
 
+## 本地开发
 
-需要修改 `docker-compose.yml` 中这些值：
+Windows：
 
-```yaml
-POSTGRES_USER: "fill-postgres-user"
-POSTGRES_PASSWORD: "fill-postgres-password"
-MIYOUSHE_COOKIE: "fill-miyoushe-cookie"
-ADMIN_JWT_SECRET: "jwt-secret"
+```powershell
+just backend
+just worker
+```
+
+Linux：
+
+```bash
+./scripts/linux/start-dev.sh
+cd worker && bun run news
+```
+
+运行检查：
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cd worker && bun run check && bun test src/news
+```
+
+后端启动后可访问：
+
+- 健康检查：`http://localhost:7040/healthz`
+- Scalar API 文档：`http://localhost:7040/scalar`
+
+## Docker 开发环境
+
+拥有私有 worker 仓库时，将其克隆到项目的 `worker/` 目录，然后构建两个开发镜像：
+
+```bash
+docker build -f Dockerfile.dev --target akasha -t akasha-backend:dev .
+docker build -f Dockerfile.dev --target worker -t akasha-worker:dev .
 ```
 
 启动服务：
@@ -50,57 +100,31 @@ docker compose up -d
 查看日志：
 
 ```bash
-docker logs -f Akasha
-docker logs -f Akasha-crawler
+docker logs -f akasha-backend
+docker logs -f akasha-worker
 ```
 
-访问服务：
+## 后端发布镜像
 
-```text
-http://localhost:7040
-```
-
-## 环境变量
-
-后端和爬虫都需要 PostgreSQL 连接配置：
-
-| 变量                | 默认值      | 说明                    |
-| ------------------- | ----------- | ----------------------- |
-| `POSTGRES_HOST`     | `127.0.0.1` | PostgreSQL 地址         |
-| `POSTGRES_PORT`     | `5432`      | PostgreSQL 端口         |
-| `POSTGRES_USER`     | 无          | PostgreSQL 用户名，必填 |
-| `POSTGRES_PASSWORD` | 无          | PostgreSQL 密码，必填   |
-| `POSTGRES_DB`       | `Akasha`    | PostgreSQL 数据库名     |
-
-爬虫额外需要：
-
-| 变量              | 说明                                  |
-| ----------------- | ------------------------------------- |
-| `MIYOUSHE_COOKIE` | 米游社请求详情接口使用的 Cookie，必填 |
-
-## 本地开发
-
-启动后端：
+发布 Dockerfile 只包含后端：
 
 ```bash
-cargo run -p Akasha
+docker build --target akasha -t akasha-backend:latest .
 ```
 
-运行单个爬虫任务：
+## 手动重洗新闻数据
+
+重洗任务从数据库的 `raw_data` 重新解析指定字段，不会自动随解析规则版本变化触发
+
+例如仅重算 5 条原神官网视频时长：
 
 ```bash
-cargo run -p crawler -- run miyoushe
-cargo run -p crawler -- run official_site
-```
-
-启动定时爬虫：
-
-```bash
-cargo run -p crawler -- serve
-```
-
-指定 cron 表达式：
-
-```bash
-cargo run -p crawler -- serve "0 */30 * * * *"
+cd worker
+bun run src/news/reprocess.ts \
+  --game ys \
+  --source web_cn \
+  --type video \
+  --fields video_duration \
+  --limit 5 \
+  --dry-run
 ```

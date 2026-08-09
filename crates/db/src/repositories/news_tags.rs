@@ -1,7 +1,5 @@
 mod commands;
-mod projections;
 mod queries;
 
-pub use commands::{NewsTagInput, SyncTagsInput, SyncTagsResult, sync_tags};
-pub use projections::NewsTagProjection;
-pub use queries::list_tags;
+pub(crate) use commands::sync_news_tags;
+pub(crate) use queries::{find_series, list_tags};

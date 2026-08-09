@@ -23,25 +23,21 @@ build:
 
 [windows]
 build-docker:
-    docker build --target akasha -t akasha-backend:latest .
-    docker build --target worker -t akasha-worker:latest .
+    docker build -f Dockerfile.dev --target akasha -t akasha-backend:dev .
+    docker build -f Dockerfile.dev --target worker -t akasha-worker:dev .
 
 [windows]
 run-docker: build-docker
-    docker compose -f docker-compose.dev.yml up -d
+    docker compose up -d
 
 [windows]
 check:
     cargo fmt --check
     cargo check
-    Push-Location frontend/admin; try { bun run build } finally { Pop-Location }
-    Push-Location frontend/wiki; try { bun run build } finally { Pop-Location }
     Push-Location worker; try { bun run check } finally { Pop-Location }
 
 [windows]
 clean:
     Remove-Item -LiteralPath dist -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath frontend/admin/dist -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath frontend/wiki/dist -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath worker/dist -Recurse -Force -ErrorAction SilentlyContinue
     cargo clean

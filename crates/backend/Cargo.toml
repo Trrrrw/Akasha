@@ -15,14 +15,18 @@ name = "akasha-backend"
 path = "src/main.rs"
 
 [dependencies]
+akasha-application = { path = "../application" }
 akasha-db = { path = "../db" }
+akasha-mys = { path = "../mys" }
 anyhow = { workspace = true }
 axum = { workspace = true }
 base64 = "0.22"
 chrono = { workspace = true }
 hex = "0.4"
 hmac = "0.13"
-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+html2text = { version = "0.17", features = ["css"] }
+jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs"] }
+quick-xml = { version = "0.41", features = ["serialize"] }
 rand = "0.10"
 reqwest = { version = "0.13", default-features = false, features = ["json", "form", "rustls"] }
 rss = "2"
@@ -38,3 +42,6 @@ urlencoding = "2"
 utoipa = { version = "5.4.0", features = ["axum_extras"] }
 utoipa-axum = "0.2.0"
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
+
+[dev-dependencies]
+uuid = { workspace = true }

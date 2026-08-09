@@ -1,9 +1,6 @@
 mod commands;
 mod projections;
 
-pub use crate::models::{WorkerPhase, WorkerStatus};
-pub use commands::{
-    AcquireWorkerInput, AcquireWorkerResult, CompleteWorkerInput, UpdateCheckpointInput, acquire,
-    checkpoint, complete, fail, heartbeat,
+pub(crate) use commands::{
+    acquire_worker, checkpoint_worker, complete_worker, fail_worker, heartbeat_worker,
 };
-pub use projections::WorkerState;

@@ -5,6 +5,7 @@ use crate::{
     state::AppState,
 };
 
+/// 构建需要认证的管理路由
 pub(crate) fn router() -> Router<AppState> {
     Router::new().nest(
         "/api/v1/admin",

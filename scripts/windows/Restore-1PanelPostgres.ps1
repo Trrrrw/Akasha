@@ -63,7 +63,8 @@ function Invoke-Docker
 
     if (-not $AllowFailure -and $Code -ne 0)
     {
-        throw "Docker 命令执行失败，退出码：$Code`n命令：docker $($Arguments -join ' ')"
+        # 参数可能包含 PGPASSWORD，错误中不能回显完整命令
+        throw "Docker 命令执行失败，退出码：$Code"
     }
 
     if ($PassThru)

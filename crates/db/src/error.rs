@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+/// 数据库连接、schema 同步和持久化操作可能返回的错误
 #[derive(Error, Debug)]
 pub enum DbError {
     #[error("数据库连接失败: {0}")]

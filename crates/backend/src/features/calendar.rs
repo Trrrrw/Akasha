@@ -4,6 +4,7 @@ use utoipa_axum::router::OpenApiRouter;
 
 use crate::state::AppState;
 
+/// 构建公开日历路由
 pub(crate) fn public_router() -> OpenApiRouter<AppState> {
     use utoipa_axum::routes;
 

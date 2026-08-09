@@ -1,17 +1,12 @@
 use crate::{features::auth::endpoints, state::AppState};
-use axum::{
-    Router,
-    routing::{get, post},
-};
+use utoipa_axum::{router::OpenApiRouter, routes};
 
-pub(crate) fn router() -> Router<AppState> {
-    Router::new().nest(
-        "/api/v1/auth",
-        Router::new()
-            .route("/github", get(endpoints::github_login))
-            .route("/callback/github", get(endpoints::github_callback))
-            .route("/refresh", post(endpoints::refresh))
-            .route("/logout", post(endpoints::logout))
-            .route("/me", get(endpoints::me)),
-    )
+/// 构建 GitHub OAuth 和令牌管理公开路由
+pub(crate) fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(endpoints::github_login))
+        .routes(routes!(endpoints::github_callback))
+        .routes(routes!(endpoints::refresh_session))
+        .routes(routes!(endpoints::logout))
+        .routes(routes!(endpoints::current_user))
 }

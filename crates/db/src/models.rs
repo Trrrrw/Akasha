@@ -1,20 +1,6 @@
 use sea_orm::entity::prelude::*;
 
-use crate::repositories::news::NewsSummary;
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NewsCount {
-    pub total: u64,
-    pub article: u64,
-    pub video: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct RecentNews {
-    pub article: Vec<NewsSummary>,
-    pub video: Vec<NewsSummary>,
-}
-
+/// 已拆分为包含词和排除词的标题搜索条件
 #[derive(Debug, Default)]
 pub struct TitleQuery {
     pub includes: Vec<String>,
@@ -22,6 +8,7 @@ pub struct TitleQuery {
 }
 
 impl TitleQuery {
+    /// 将空格分隔、支持减号排除的标题查询拆分为包含和排除词
     pub fn new(q: &str) -> TitleQuery {
         let mut parsed = TitleQuery::default();
 
@@ -45,6 +32,7 @@ impl TitleQuery {
     }
 }
 
+/// 数据库中保存的用户组
 #[derive(Debug, Clone, PartialEq, Eq, DeriveActiveEnum, EnumIter)]
 #[sea_orm(
     rs_type = "String",
@@ -57,6 +45,7 @@ pub enum UserGroup {
 }
 
 impl UserGroup {
+    /// 返回用户组稳定的数据库字符串值
     pub fn as_str(&self) -> &'static str {
         match self {
             UserGroup::Admin => "admin",
@@ -65,6 +54,7 @@ impl UserGroup {
     }
 }
 
+/// 审计日志中记录的操作主体类型
 #[derive(Debug, Clone, PartialEq, Eq, DeriveActiveEnum, EnumIter)]
 #[sea_orm(
     rs_type = "String",
@@ -77,6 +67,7 @@ pub enum AuditLogActorType {
     System,
 }
 
+/// SeaORM 中保存的 worker 同步阶段
 #[derive(Debug, Clone, PartialEq, Eq, DeriveActiveEnum, EnumIter)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 pub enum WorkerPhase {
@@ -88,6 +79,7 @@ pub enum WorkerPhase {
 }
 
 impl WorkerPhase {
+    /// 返回 worker 阶段稳定的数据库字符串值
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::InitialBackfill => "initial_backfill",
@@ -96,6 +88,7 @@ impl WorkerPhase {
     }
 }
 
+/// SeaORM 中保存的 worker 生命周期状态
 #[derive(Debug, Clone, PartialEq, Eq, DeriveActiveEnum, EnumIter)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 pub enum WorkerStatus {
@@ -110,6 +103,7 @@ pub enum WorkerStatus {
 }
 
 impl WorkerStatus {
+    /// 返回 worker 状态稳定的数据库字符串值
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Idle => "idle",
@@ -119,6 +113,7 @@ impl WorkerStatus {
     }
 }
 
+/// SeaORM 中保存的角色性别
 #[derive(Debug, Clone, PartialEq, Eq, DeriveActiveEnum, EnumIter)]
 #[sea_orm(
     rs_type = "String",
@@ -131,6 +126,7 @@ pub enum Gender {
 }
 
 impl Gender {
+    /// 返回角色性别稳定的数据库字符串值
     pub fn as_str(&self) -> &'static str {
         match self {
             Gender::Male => "male",

@@ -1,11 +1,11 @@
 mod dto;
 pub(crate) mod endpoints;
-pub(crate) mod use_cases;
 
 use utoipa_axum::router::OpenApiRouter;
 
 use crate::state::AppState;
 
+/// 构建公开游戏查询路由
 pub(crate) fn public_router() -> OpenApiRouter<AppState> {
     use utoipa_axum::routes;
 

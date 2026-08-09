@@ -1,21 +1,31 @@
+use akasha_application::news::NewsItemResult;
 use axum::{
     Json,
-    extract::{Path, Query, State},
-    http::header,
+    extract::{ConnectInfo, Path, Query, State},
+    http::{HeaderMap, HeaderValue, header},
     response::{IntoResponse, Response},
 };
+use std::net::SocketAddr;
 
 use crate::{
     features::news::{
-        dto::{NewsItemResponse, NewsListMeta, NewsSourceResponse, NewsTagsResponse},
-        query::{NewsDetailPath, NewsDetailQuery, NewsListQuery, NewsTagsQuery},
-        rss, use_cases,
+        dto::{
+            NewsDetailResponse, NewsItemResponse, NewsListMeta, NewsSourceResponse,
+            NewsTagsResponse, NewsVideoResponse,
+        },
+        nfo,
+        query::{
+            NewsDetailPath, NewsEpisodeNfoQuery, NewsListQuery, NewsRssQuery,
+            NewsSeriesEpisodePath, NewsSeriesPath, NewsSourceQuery,
+        },
+        rss,
     },
     http::{
         error::AppError,
         path::GamePath,
         response::{ListResponse, PageResponse},
     },
+    mys::MysVideoUrlResolution,
     state::AppState,
 };
 
@@ -24,19 +34,19 @@ use crate::{
     path = "/games/{game_id}/news/sources",
     tag = "News",
     summary = "获取新闻来源列表",
+    description = "返回指定游戏已经配置的新闻来源，来源 ID 可用于其他新闻接口",
     params(GamePath),
     responses(
         (status = 200, body = ListResponse<NewsSourceResponse>),
         (status = 500, body = crate::http::response::ErrorResponse)
     )
 )]
+/// 列出一个游戏已配置的新闻来源
 pub(super) async fn list_sources(
     State(state): State<AppState>,
     Path(GamePath { game_id }): Path<GamePath>,
 ) -> Result<Json<ListResponse<NewsSourceResponse>>, AppError> {
-    let rows = use_cases::list_sources(state.db(), &game_id)
-        .await
-        .map_err(|err| AppError::Internal(err.into()))?;
+    let rows = state.application().list_news_sources(&game_id).await?;
 
     let items = rows
         .into_iter()
@@ -49,28 +59,34 @@ pub(super) async fn list_sources(
     }))
 }
 
-#[utoipa::path(get, path = "/games/{game_id}/news/tags",
-tag = "News",
-summary = "获取新闻标签列表",
-params(GamePath, NewsTagsQuery),
-responses(
-    (status = 200, body = NewsTagsResponse),
-    (status = 500, body = crate::http::response::ErrorResponse)
-))]
+#[utoipa::path(
+    get,
+    path = "/games/{game_id}/news/tags",
+    tag = "News",
+    summary = "获取新闻标签列表",
+    description = "返回指定来源的标签分组、新闻数量和最近新闻预览",
+    params(GamePath, NewsSourceQuery),
+    responses(
+        (status = 200, body = NewsTagsResponse),
+        (status = 500, body = crate::http::response::ErrorResponse)
+    )
+)]
+/// 列出一个来源的新闻标签及其最近新闻预览
 pub(super) async fn list_tags(
     State(state): State<AppState>,
     Path(GamePath { game_id }): Path<GamePath>,
-    Query(NewsTagsQuery { source_id }): Query<NewsTagsQuery>,
+    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
 ) -> Result<Json<NewsTagsResponse>, AppError> {
-    let (rows, game_cover) = use_cases::list_tags(state.db(), &game_id, &source_id)
-        .await
-        .map_err(|err| AppError::Internal(err.into()))?;
+    let result = state
+        .application()
+        .list_news_tags(&game_id, &source_id)
+        .await?;
 
     Ok(Json(NewsTagsResponse::from_rows(
         game_id,
         source_id,
-        rows,
-        game_cover.as_deref(),
+        result.tags,
+        result.game_cover.as_deref(),
         &state.config().asset_base_url,
     )))
 }
@@ -80,12 +96,15 @@ pub(super) async fn list_tags(
     path = "/games/{game_id}/news",
     tag = "News",
     summary = "获取新闻列表",
+    description = "按来源、类型、标签、标题和发布日期筛选新闻，并返回稳定分页结果",
     params(GamePath, NewsListQuery),
     responses(
         (status = 200, body = PageResponse<NewsItemResponse, NewsListMeta>),
+        (status = 400, body = crate::http::response::ErrorResponse),
         (status = 500, body = crate::http::response::ErrorResponse)
     )
 )]
+/// 列出一个游戏来源经筛选的一页新闻
 pub(super) async fn list(
     State(state): State<AppState>,
     Path(path): Path<GamePath>,
@@ -105,22 +124,21 @@ pub(super) async fn list(
         "listing news"
     );
 
-    let (total, rows, game_cover) = use_cases::list(state.db(), filter)
-        .await
-        .map_err(|error| AppError::Internal(error.into()))?;
-    let items = rows
+    let result = state.application().list_news(filter).await?;
+    let items = result
+        .items
         .into_iter()
         .map(|news| {
             NewsItemResponse::from_summary(
                 news,
-                game_cover.as_deref(),
+                result.game_cover.as_deref(),
                 &state.config().asset_base_url,
             )
         })
         .collect();
 
     Ok(Json(PageResponse {
-        total,
+        total: result.total,
         limit,
         offset,
         items,
@@ -133,30 +151,201 @@ pub(super) async fn list(
     path = "/games/{game_id}/news/{news_id}",
     tag = "News",
     summary = "获取新闻详情",
-    params(NewsDetailPath, NewsDetailQuery),
+    description = "按游戏、来源和新闻 ID 返回完整公开信息，视频新闻同时包含最多 8 条相关推荐",
+    params(NewsDetailPath, NewsSourceQuery),
     responses(
-        (status = 200, body = NewsItemResponse),
+        (status = 200, body = NewsDetailResponse),
         (status = 404, body = crate::http::response::ErrorResponse),
         (status = 500, body = crate::http::response::ErrorResponse)
     )
 )]
+/// 返回请求游戏来源的一条新闻
 pub(super) async fn detail(
     State(state): State<AppState>,
     Path(NewsDetailPath { game_id, news_id }): Path<NewsDetailPath>,
-    Query(NewsDetailQuery { source_id }): Query<NewsDetailQuery>,
-) -> Result<Json<NewsItemResponse>, AppError> {
-    let (news, game_cover) = use_cases::detail(state.db(), &game_id, &source_id, &news_id)
-        .await
-        .map_err(|error| AppError::Internal(error.into()))?
+    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
+) -> Result<Json<NewsDetailResponse>, AppError> {
+    let result = state
+        .application()
+        .find_news_detail(&game_id, &source_id, &news_id)
+        .await?
         .ok_or_else(|| {
             AppError::NotFound(format!("news {news_id} not found in {source_id} {game_id}"))
         })?;
 
-    Ok(Json(NewsItemResponse::from_summary(
-        news,
-        game_cover.as_deref(),
+    Ok(Json(NewsDetailResponse::from_result(
+        result,
         &state.config().asset_base_url,
     )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/games/{game_id}/news/{news_id}/nfo",
+    tag = "News",
+    summary = "下载独立视频 NFO",
+    description = "将一条视频新闻作为独立电影导出为 Kodi 和 Jellyfin Movie NFO",
+    params(NewsDetailPath, NewsSourceQuery),
+    responses(
+        (status = 200, description = "视频新闻 NFO XML", content_type = "application/xml"),
+        (status = 404, body = crate::http::response::ErrorResponse),
+        (status = 500, body = crate::http::response::ErrorResponse)
+    )
+)]
+/// 生成并下载一条独立视频新闻的 Movie NFO 文件
+pub(super) async fn download_movie_nfo(
+    State(state): State<AppState>,
+    Path(NewsDetailPath { game_id, news_id }): Path<NewsDetailPath>,
+    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
+) -> Result<Response, AppError> {
+    let result = find_video_news(&state, &game_id, &source_id, &news_id).await?;
+
+    // NFO 只描述媒体元数据，不解析会过期的米游社播放签名
+    let document = nfo::build_movie(
+        &game_id,
+        &source_id,
+        result.item,
+        result.game_cover,
+        &state.config().asset_base_url,
+    )
+    .map_err(AppError::Internal)?;
+
+    nfo_file_response(document)
+}
+
+#[utoipa::path(
+    get,
+    path = "/games/{game_id}/news/series/{tag_name}/nfo",
+    tag = "News",
+    summary = "下载标签剧集 NFO",
+    description = "将至少包含一条视频的新闻标签导出为 tvshow.nfo，供前端交给 Aria2 下载",
+    params(NewsSeriesPath, NewsSourceQuery),
+    responses(
+        (status = 200, description = "标签剧集 TV Show NFO", content_type = "application/xml"),
+        (status = 404, body = crate::http::response::ErrorResponse),
+        (status = 500, body = crate::http::response::ErrorResponse)
+    )
+)]
+/// 生成并下载一个新闻标签的 TV Show NFO 文件
+pub(super) async fn download_series_nfo(
+    State(state): State<AppState>,
+    Path(NewsSeriesPath { game_id, tag_name }): Path<NewsSeriesPath>,
+    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
+) -> Result<Response, AppError> {
+    let series = state
+        .application()
+        .find_news_series(&game_id, &source_id, &tag_name)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "video series {tag_name} not found in {source_id} {game_id}"
+            ))
+        })?;
+    let document = nfo::build_series(&game_id, &source_id, series, &state.config().asset_base_url)
+        .map_err(AppError::Internal)?;
+
+    nfo_file_response(document)
+}
+
+#[utoipa::path(
+    get,
+    path = "/games/{game_id}/news/series/{tag_name}/episodes/{news_id}/nfo",
+    tag = "News",
+    summary = "下载视频单集 NFO",
+    description = "将标签内的视频导出为 episodedetails NFO，季集编号应与前端生成的 SxxExx 文件名一致",
+    params(NewsSeriesEpisodePath, NewsEpisodeNfoQuery),
+    responses(
+        (status = 200, description = "视频新闻 Episode NFO", content_type = "application/xml"),
+        (status = 400, body = crate::http::response::ErrorResponse),
+        (status = 404, body = crate::http::response::ErrorResponse),
+        (status = 500, body = crate::http::response::ErrorResponse)
+    )
+)]
+/// 生成并下载标签内一条视频新闻的 Episode NFO 文件
+pub(super) async fn download_episode_nfo(
+    State(state): State<AppState>,
+    Path(NewsSeriesEpisodePath {
+        game_id,
+        tag_name,
+        news_id,
+    }): Path<NewsSeriesEpisodePath>,
+    Query(query): Query<NewsEpisodeNfoQuery>,
+) -> Result<Response, AppError> {
+    let NewsEpisodeNfoQuery {
+        source_id,
+        season,
+        episode,
+    } = query.validate()?;
+    let result = find_video_news(&state, &game_id, &source_id, &news_id).await?;
+    if !result.item.tags.iter().any(|tag| tag == &tag_name) {
+        return Err(AppError::NotFound(format!(
+            "video news {news_id} does not belong to tag {tag_name}"
+        )));
+    }
+    let series = state
+        .application()
+        .find_news_series(&game_id, &source_id, &tag_name)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "video series {tag_name} not found in {source_id} {game_id}"
+            ))
+        })?;
+    let context = nfo::EpisodeNfoContext::new(&game_id, &source_id, series, season, episode);
+    let document = nfo::build_episode(context, result.item, &state.config().asset_base_url)
+        .map_err(AppError::Internal)?;
+
+    nfo_file_response(document)
+}
+
+#[utoipa::path(
+    get,
+    path = "/games/{game_id}/news/{news_id}/video",
+    tag = "News",
+    summary = "获取新闻视频播放地址",
+    description = "返回当前有效的视频播放地址，米游社地址会按新闻单独刷新签名；请求按客户端 IP 限流",
+    params(NewsDetailPath, NewsSourceQuery),
+    responses(
+        (status = 200, body = NewsVideoResponse),
+        (
+            status = 429,
+            body = crate::http::response::ErrorResponse,
+            headers(("Retry-After" = u64, description = "建议等待秒数"))
+        ),
+        (status = 404, body = crate::http::response::ErrorResponse),
+        (status = 500, body = crate::http::response::ErrorResponse)
+    )
+)]
+/// 按新闻 ID 获取当前有效的视频播放地址
+pub(super) async fn video(
+    State(state): State<AppState>,
+    ConnectInfo(client_address): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(NewsDetailPath { game_id, news_id }): Path<NewsDetailPath>,
+    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
+) -> Result<Json<NewsVideoResponse>, AppError> {
+    // 在读取数据库或访问米游社前按安全解析的客户端 IP 消耗视频接口令牌
+    let client_ip = state
+        .public_rate_limiters()
+        .client_ip(&headers, client_address);
+    state.public_rate_limiters().check_video(client_ip)?;
+
+    let result = find_video_news(&state, &game_id, &source_id, &news_id).await?;
+    let item = result.item;
+
+    // 米游社视频必须按文章 ID 请求最新签名，其他来源沿用数据库中的地址
+    let video_url = if source_id == "mys" {
+        state
+            .mys_video_service()
+            .resolve_video_url(&game_id, &news_id)
+            .await?
+    } else {
+        item.video_url
+    };
+    let video_url = video_url
+        .ok_or_else(|| AppError::NotFound(format!("video for news {news_id} is not available")))?;
+
+    Ok(Json(NewsVideoResponse::new(video_url)))
 }
 
 #[utoipa::path(
@@ -164,29 +353,73 @@ pub(super) async fn detail(
     path = "/games/{game_id}/news/rss",
     tag = "News",
     summary = "获取新闻 RSS",
-    params(GamePath, NewsListQuery),
+    description = "按新闻筛选条件生成固定为发布时间倒序的 RSS 2.0 订阅源；请求按客户端 IP 限流，冷缓存签名刷新数量受请求预算限制",
+    params(GamePath, NewsRssQuery),
     responses(
-        (status = 200, description = "RSS 2.0 XML"),
+        (status = 200, description = "RSS 2.0 XML", content_type = "application/rss+xml"),
+        (status = 400, body = crate::http::response::ErrorResponse),
+        (
+            status = 429,
+            body = crate::http::response::ErrorResponse,
+            headers(("Retry-After" = u64, description = "建议等待秒数"))
+        ),
         (status = 500, body = crate::http::response::ErrorResponse)
     )
 )]
+/// 将请求新闻集合渲染为 RSS 2.0 XML
 pub(super) async fn rss(
     State(state): State<AppState>,
+    ConnectInfo(client_address): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Path(path): Path<GamePath>,
-    Query(query): Query<NewsListQuery>,
+    Query(query): Query<NewsRssQuery>,
 ) -> Result<Response, AppError> {
+    // RSS 查询和签名解析共用一次安全解析的客户端限流检查
+    let client_ip = state
+        .public_rate_limiters()
+        .client_ip(&headers, client_address);
+    state.public_rate_limiters().check_rss(client_ip)?;
+
     let filter = query.into_filter(path)?;
     let source_id = filter.source_id.clone();
     let game_id = filter.game_id.clone();
 
-    let (_, rows, game_cover) = use_cases::list(state.db(), filter)
-        .await
-        .map_err(|error| AppError::Internal(error.into()))?;
+    let result = state.application().list_news(filter).await?;
+    let mut items = result.items;
+
+    // 缓存命中不消耗预算，冷缓存最多刷新配置数量的米游社视频签名
+    let mut remaining_refreshes = state.config().public_rate_limits.rss_mys_refresh_limit;
+    let mut omitted_video_count = 0_u64;
+    for item in &mut items {
+        if item.source_id == "mys" && item.news_type == "video" {
+            item.video_url = match state
+                .mys_video_service()
+                .resolve_video_url_with_refresh_budget(&game_id, &item.id, &mut remaining_refreshes)
+                .await?
+            {
+                MysVideoUrlResolution::Available(url) => Some(url),
+                MysVideoUrlResolution::NotFound => None,
+                MysVideoUrlResolution::RefreshBudgetExhausted => {
+                    omitted_video_count += 1;
+                    None
+                }
+            };
+        }
+    }
+    if omitted_video_count > 0 {
+        tracing::debug!(
+            game_id = %game_id,
+            source_id = %source_id,
+            omitted_video_count,
+            refresh_limit = state.config().public_rate_limits.rss_mys_refresh_limit,
+            "RSS video signature refresh budget exhausted"
+        );
+    }
     let document = rss::build(
         &game_id,
         &source_id,
-        rows,
-        game_cover,
+        items,
+        result.game_cover,
         &state.config().asset_base_url,
     );
 
@@ -195,4 +428,42 @@ pub(super) async fn rss(
         document,
     )
         .into_response())
+}
+
+/// 查找一条视频新闻并统一映射不存在或类型不符的情况
+async fn find_video_news(
+    state: &AppState,
+    game_id: &str,
+    source_id: &str,
+    news_id: &str,
+) -> Result<NewsItemResult, AppError> {
+    let result = state
+        .application()
+        .find_news(game_id, source_id, news_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFound(format!("news {news_id} not found in {source_id} {game_id}"))
+        })?;
+
+    if result.item.news_type != "video" {
+        return Err(AppError::NotFound(format!("news {news_id} is not a video")));
+    }
+
+    Ok(result)
+}
+
+/// 将 NFO 文档转换为带安全下载文件名的 XML 响应
+fn nfo_file_response(document: nfo::NfoDocument) -> Result<Response, AppError> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/xml; charset=utf-8"),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{}\"", document.filename))
+            .map_err(|error| AppError::Internal(error.into()))?,
+    );
+
+    Ok((headers, document.xml).into_response())
 }

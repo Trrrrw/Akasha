@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use akasha_application::news::{NewsTagInput, SyncNewsTagsCommand, SyncNewsTagsResult};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
     TransactionError, TransactionTrait,
@@ -8,16 +9,21 @@ use sea_orm::{
 use crate::{
     Db, DbError,
     entities::{news_tags, news_tags_link},
+    repositories::audit,
 };
 
-pub async fn sync_tags(db: &Db, input: SyncTagsInput) -> Result<SyncTagsResult, DbError> {
-    let game_id = input.game_id;
-    let source_id = input.source_id;
-    let mut tags = input.tags;
+/// 在一个事务中同步来源标签目录并移除过期标签关联
+pub async fn sync_news_tags(
+    db: &Db,
+    command: SyncNewsTagsCommand,
+) -> Result<SyncNewsTagsResult, DbError> {
+    let game_id = command.game_id;
+    let source_id = command.source_id;
+    let mut tags = command.tags;
     tags.sort_by(tag_order);
 
     db.conn()
-        .transaction::<_, SyncTagsResult, DbErr>(|txn| {
+        .transaction::<_, SyncNewsTagsResult, DbErr>(|txn| {
             Box::pin(async move {
                 let current = news_tags::Entity::find()
                     .filter(news_tags::Column::GameId.eq(&game_id))
@@ -25,6 +31,7 @@ pub async fn sync_tags(db: &Db, input: SyncTagsInput) -> Result<SyncTagsResult, 
                     .order_by_asc(news_tags::Column::GroupIndex)
                     .order_by_asc(news_tags::Column::Group)
                     .order_by(news_tags::Column::Index, sea_orm::Order::Asc)
+                    .order_by_asc(news_tags::Column::Name)
                     .all(txn)
                     .await?
                     .into_iter()
@@ -32,7 +39,7 @@ pub async fn sync_tags(db: &Db, input: SyncTagsInput) -> Result<SyncTagsResult, 
                     .collect::<Vec<_>>();
 
                 if current == tags {
-                    return Ok(SyncTagsResult {
+                    return Ok(SyncNewsTagsResult {
                         changed: false,
                         tags,
                     });
@@ -81,7 +88,20 @@ pub async fn sync_tags(db: &Db, input: SyncTagsInput) -> Result<SyncTagsResult, 
                     }
                 }
 
-                Ok(SyncTagsResult {
+                audit::insert(
+                    txn,
+                    &command.audit,
+                    "news.tags_catalog_sync",
+                    Some("news_source"),
+                    Some(format!("{}:{}", game_id, source_id)),
+                    serde_json::json!({
+                        "changed_fields": ["tag_catalog"],
+                        "tag_count": tags.len(),
+                    }),
+                )
+                .await?;
+
+                Ok(SyncNewsTagsResult {
                     changed: true,
                     tags,
                 })
@@ -95,26 +115,8 @@ pub async fn sync_tags(db: &Db, input: SyncTagsInput) -> Result<SyncTagsResult, 
         })
 }
 
-pub struct SyncTagsInput {
-    pub game_id: String,
-    pub source_id: String,
-    pub tags: Vec<NewsTagInput>,
-}
-
-pub struct SyncTagsResult {
-    pub changed: bool,
-    pub tags: Vec<NewsTagInput>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NewsTagInput {
-    pub name: String,
-    pub index: i64,
-    pub group: Option<String>,
-    pub group_index: Option<i64>,
-}
-
 impl From<news_tags::Model> for NewsTagInput {
+    /// 将新闻标签 Entity 映射为应用层同步输入
     fn from(value: news_tags::Model) -> Self {
         Self {
             name: value.name,
@@ -125,6 +127,7 @@ impl From<news_tags::Model> for NewsTagInput {
     }
 }
 
+/// 将标签输入排序为公开标签查询返回的顺序
 fn tag_order(left: &NewsTagInput, right: &NewsTagInput) -> std::cmp::Ordering {
     option_some_first(&left.group_index, &right.group_index)
         .then_with(|| option_some_first(&left.group, &right.group))
@@ -132,6 +135,7 @@ fn tag_order(left: &NewsTagInput, right: &NewsTagInput) -> std::cmp::Ordering {
         .then_with(|| left.name.cmp(&right.name))
 }
 
+/// 将存在的值排在缺失值之前，并保持自然顺序
 fn option_some_first<T: Ord>(left: &Option<T>, right: &Option<T>) -> std::cmp::Ordering {
     match (left, right) {
         (Some(left), Some(right)) => left.cmp(right),

@@ -1,4 +1,4 @@
-name: Build and Deploy
+name: Build Backend
 
 on:
   push:
@@ -10,8 +10,6 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "assets/**"
-      - "frontend/**"
-      - "worker/**"
       - "crates/**"
       - ".github/workflows/build_and_deploy.yaml"
   pull_request:
@@ -21,8 +19,6 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "assets/**"
-      - "frontend/**"
-      - "worker/**"
       - "crates/**"
       - ".github/workflows/build_and_deploy.yaml"
 
@@ -34,7 +30,6 @@ env:
   ALIYUN_REGISTRY: crpi-73ao84573omk8qlo.cn-hangzhou.personal.cr.aliyuncs.com
   ALIYUN_NAMESPACE: akasha
   AKASHA_BACKEND_IMAGE_NAME: akasha-backend
-  AKASHA_WORKER_IMAGE_NAME: akasha-worker
 
 jobs:
   build:
@@ -72,48 +67,3 @@ jobs:
           tags: |
             ghcr.io/trrrrw/${{ env.AKASHA_BACKEND_IMAGE_NAME }}:latest
             ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.AKASHA_BACKEND_IMAGE_NAME }}:latest
-
-      - name: Build and push Akasha worker
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: worker
-          push: ${{ github.event_name == 'push' }}
-          cache-from: type=gha,scope=akasha-worker
-          cache-to: type=gha,scope=akasha-worker,mode=max
-          tags: |
-            ghcr.io/trrrrw/${{ env.AKASHA_WORKER_IMAGE_NAME }}:latest
-            ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.AKASHA_WORKER_IMAGE_NAME }}:latest
-
-  deploy:
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Join tailnet
-        uses: tailscale/github-action@v3
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-
-      - name: Deploy Compose stack
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_TAILSCALE_HOST }}
-          port: ${{ secrets.DEPLOY_SSH_PORT }}
-          username: ${{ secrets.DEPLOY_SSH_USER }}
-          key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-          command_timeout: 40m
-          script: |
-            set -e
-
-            cd '${{ secrets.DEPLOY_PATH }}'
-
-            docker login --username='${{ secrets.ALIYUN_REGISTRY_USERNAME }}' \
-              --password='${{ secrets.ALIYUN_REGISTRY_PASSWORD }}' \
-              '${{ env.ALIYUN_REGISTRY }}'
-
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f

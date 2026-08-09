@@ -31,8 +31,6 @@ function Stop-ProcessTree {
 
 $processes = @(
     Start-DevelopmentProcess "cargo.exe" @("run", "-p", "akasha-backend") $projectRoot
-    Start-DevelopmentProcess "bun.exe" @("run", "dev") (Join-Path $projectRoot "frontend/admin")
-    Start-DevelopmentProcess "bun.exe" @("run", "dev") (Join-Path $projectRoot "frontend/wiki")
 )
 
 try {

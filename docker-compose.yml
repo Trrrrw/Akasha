@@ -27,7 +27,11 @@ services:
 
   akasha-backend:
     container_name: akasha-backend
-    image: akasha-backend:latest
+    image: akasha-backend:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: akasha
     restart: unless-stopped
     depends_on:
       akasha-db:
@@ -36,6 +40,7 @@ services:
       - "7040:7040"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      ASSET_BASE_URL: ${ASSET_BASE_URL}
       POSTGRES_HOST: akasha-db
       POSTGRES_PORT: "5432"
       POSTGRES_USER: ${POSTGRES_USER}
@@ -46,7 +51,15 @@ services:
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
       GITHUB_OAUTH_REDIRECT_URL: ${GITHUB_OAUTH_REDIRECT_URL}
+      ADMIN_GITHUB_ID: ${ADMIN_GITHUB_ID:-}
       WORKER_TOKEN: ${WORKER_TOKEN}
+      MIYOUSHE_COOKIE: ${MIYOUSHE_COOKIE}
+      RATE_LIMIT_TRUSTED_PROXY_IPS: ${RATE_LIMIT_TRUSTED_PROXY_IPS:-}
+      NEWS_VIDEO_RATE_LIMIT_PER_MINUTE: ${NEWS_VIDEO_RATE_LIMIT_PER_MINUTE:-30}
+      NEWS_VIDEO_RATE_LIMIT_BURST: ${NEWS_VIDEO_RATE_LIMIT_BURST:-10}
+      NEWS_RSS_RATE_LIMIT_PER_MINUTE: ${NEWS_RSS_RATE_LIMIT_PER_MINUTE:-12}
+      NEWS_RSS_RATE_LIMIT_BURST: ${NEWS_RSS_RATE_LIMIT_BURST:-3}
+      NEWS_RSS_MYS_REFRESH_LIMIT: ${NEWS_RSS_MYS_REFRESH_LIMIT:-10}
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:7040/healthz || exit 1"]
       interval: 5s
@@ -56,11 +69,13 @@ services:
 
   akasha-worker:
     container_name: akasha-worker
-    image: akasha-worker:latest
+    image: akasha-worker:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: worker
     restart: unless-stopped
     depends_on:
-      akasha-db:
-        condition: service_healthy
       akasha-backend:
         condition: service_healthy
     environment:
@@ -68,3 +83,4 @@ services:
       WORKER_TOKEN: ${WORKER_TOKEN}
       MIYOUSHE_COOKIE: ${MIYOUSHE_COOKIE}
       BACKEND_BASE: http://akasha-backend:7040
+      WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-3600}

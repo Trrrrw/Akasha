@@ -28,25 +28,34 @@ const LEGACY_NEWS_COVERS: &[(&str, &str)] = &[
     ),
 ];
 
-#[derive(Debug, Clone, Default)]
+/// 建立 PostgreSQL 数据库连接所需的配置
+#[derive(Clone, Default)]
 pub struct DbOptions {
+    /// PostgreSQL 主机名或地址
     pub pg_host: String,
+    /// PostgreSQL 端口
     pub pg_port: String,
+    /// PostgreSQL 用户名
     pub pg_user: String,
+    /// PostgreSQL 密码，不实现 Debug 以避免误写入日志
     pub pg_password: String,
+    /// PostgreSQL 数据库名
     pub pg_database: String,
 }
 
+/// 已初始化的 SeaORM 数据库及 schema 同步入口
 #[derive(Debug, Clone)]
 pub struct Db {
     conn: DatabaseConnection,
 }
 
 impl Db {
+    /// 返回底层 SeaORM 数据库连接，供持久化适配器使用
     pub fn conn(&self) -> &DatabaseConnection {
         &self.conn
     }
 
+    /// 连接数据库并同步 schema、约束、索引与必需种子数据
     pub async fn init(options: DbOptions) -> Result<Self, DbError> {
         let db = Self::connect(options).await?;
         db.sync_schema().await?;
@@ -57,6 +66,7 @@ impl Db {
         Ok(db)
     }
 
+    /// 根据连接选项建立带连接池配置的 PostgreSQL 连接
     async fn connect(options: DbOptions) -> Result<Self, DbError> {
         let url = format!(
             "postgres://{}:{}@{}:{}/{}",
@@ -67,18 +77,22 @@ impl Db {
             options.pg_database,
         );
 
-        let mut opt = ConnectOptions::new(url);
-        opt.max_connections(100)
+        let mut connect_options = ConnectOptions::new(url);
+        connect_options
+            .max_connections(100)
             .min_connections(5)
             .connect_timeout(Duration::from_secs(8))
             .idle_timeout(Duration::from_secs(8))
             .sqlx_logging(false);
 
-        let conn = Database::connect(opt).await.map_err(DbError::Connect)?;
+        let connection = Database::connect(connect_options)
+            .await
+            .map_err(DbError::Connect)?;
 
-        Ok(Self { conn })
+        Ok(Self { conn: connection })
     }
 
+    /// 根据已注册 Entity 同步数据库 schema
     async fn sync_schema(&self) -> Result<(), DbError> {
         let entity_registry_path = format!("{}::entities::*", env!("CARGO_CRATE_NAME"));
 
@@ -135,7 +149,7 @@ impl Db {
 
     /// 同步高频查询所需的二级索引
     async fn sync_indexes(&self) -> Result<(), DbError> {
-        let idx = Index::create()
+        let news_publish_time_index = Index::create()
             .if_not_exists()
             .name("idx_news_game_source_publish_time")
             .table("news")
@@ -145,13 +159,14 @@ impl Db {
             .to_owned();
 
         self.conn
-            .execute(&idx)
+            .execute(&news_publish_time_index)
             .await
             .map_err(DbError::SyncIndexes)?;
 
         Ok(())
     }
 
+    /// 写入服务启动必须存在的基础数据
     async fn seed_required_data(&self) -> Result<(), DbError> {
         seed::apply(&self.conn)
             .await

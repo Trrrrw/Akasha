@@ -130,6 +130,7 @@ const NEWS_SOURCE_SEEDS: &[NewsSourceSeed] = &[
     },
 ];
 
+/// 写入服务运行所需的游戏和新闻来源基础数据
 pub(crate) async fn apply(db: &sea_orm::DatabaseConnection) -> Result<(), sea_orm::DbErr> {
     db.transaction::<_, (), sea_orm::DbErr>(|txn| {
         Box::pin(async move {
@@ -164,6 +165,7 @@ struct GameSeed {
 }
 
 impl GameSeed {
+    /// 转换为可插入或更新的游戏 ActiveModel
     fn active_model(&self) -> games::ActiveModel {
         games::ActiveModel {
             id: Set(self.id.to_owned()),
@@ -184,6 +186,7 @@ struct NewsSourceSeed {
 }
 
 impl NewsSourceSeed {
+    /// 转换为可插入或更新的新闻来源 ActiveModel
     fn active_model(&self) -> news_sources::ActiveModel {
         news_sources::ActiveModel {
             id: Set(self.id.to_owned()),

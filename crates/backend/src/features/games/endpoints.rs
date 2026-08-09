@@ -4,10 +4,7 @@ use axum::{
 };
 
 use crate::{
-    features::games::{
-        dto::{GameDetailResponse, GameResponse},
-        use_cases,
-    },
+    features::games::dto::GameResponse,
     http::{
         error::AppError,
         path::GamePath,
@@ -27,16 +24,18 @@ use crate::{
         (status = 500, body = ErrorResponse)
     )
 )]
+/// 列出包含公开展示元数据的全部游戏
 pub(super) async fn list(
     State(state): State<AppState>,
 ) -> Result<Json<ListResponse<GameResponse>>, AppError> {
-    let rows = use_cases::list(state.db())
-        .await
-        .map_err(|error| AppError::Internal(error.into()))?;
-    let items = rows
-        .into_iter()
-        .map(|game| GameResponse::from_summary(game, &state.config().asset_base_url))
-        .collect::<Vec<_>>();
+    let rows = state.application().list_games().await?;
+    let mut items = Vec::with_capacity(rows.len());
+    for game in rows {
+        items.push(GameResponse::from_summary(
+            game,
+            &state.config().asset_base_url,
+        ));
+    }
 
     Ok(Json(ListResponse {
         total: items.len() as u64,
@@ -52,21 +51,23 @@ pub(super) async fn list(
     description = "返回指定游戏详情信息",
     params(GamePath),
     responses(
-        (status = 200, body = GameDetailResponse),
+        (status = 200, body = GameResponse),
         (status = 404, body = ErrorResponse),
         (status = 500, body = ErrorResponse)
     )
 )]
+/// 返回请求游戏，未找到时返回 not found 响应
 pub(super) async fn detail(
     State(state): State<AppState>,
     Path(GamePath { game_id }): Path<GamePath>,
-) -> Result<Json<GameDetailResponse>, AppError> {
-    let game = use_cases::detail(state.db(), &game_id)
-        .await
-        .map_err(|error| AppError::Internal(error.into()))?
+) -> Result<Json<GameResponse>, AppError> {
+    let game = state
+        .application()
+        .find_game(&game_id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("game {game_id} not found")))?;
 
-    Ok(Json(GameDetailResponse::from_summary(
+    Ok(Json(GameResponse::from_summary(
         game,
         &state.config().asset_base_url,
     )))

@@ -3,8 +3,8 @@ target/
 .agents/
 .codex/
 dist/
+/worker/
 
 .env
 AGENTS.md
-docker-compose.dev.yml
 skills-lock.json

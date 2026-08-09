@@ -6,14 +6,18 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+akasha-application = { path = "../application" }
 chrono = { workspace = true }
-sea-orm = { version = "2.0.0-rc", features = [
+sea-orm = { version = "2.0.0-rc", default-features = false, features = [
     "sqlx-postgres",
     "runtime-tokio-rustls",
     "schema-sync",
     "entity-registry",
-    "macros"
+    "macros",
+    "with-chrono",
+    "with-json",
+    "with-uuid"
 ] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-uuid = { version = "1", features = ["v4"] }
+uuid = { workspace = true }

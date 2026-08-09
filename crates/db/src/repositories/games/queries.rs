@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use akasha_application::{
+    games::GameSummary,
+    news::{NewsCount, RecentNews},
+};
 use sea_orm::{
     ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect,
     sea_query::{Expr, Func},
@@ -8,16 +12,14 @@ use sea_orm::{
 use crate::{
     Db, DbError,
     entities::{games, news},
-    models::{NewsCount, RecentNews},
     repositories::news::recent_by_game,
 };
 
-use super::projections::GameSummary;
-
-/// 列出所有游戏
+/// 列出全部游戏及其新闻统计和最近新闻
 pub async fn list(db: &Db) -> Result<Vec<GameSummary>, DbError> {
     let rows = games::Entity::find()
         .order_by(games::Column::Index, sea_orm::Order::Asc)
+        .order_by_asc(games::Column::Id)
         .all(db.conn())
         .await
         .map_err(DbError::Query)?;
@@ -35,7 +37,7 @@ pub async fn list(db: &Db) -> Result<Vec<GameSummary>, DbError> {
     Ok(items)
 }
 
-/// 获取指定游戏的信息
+/// 查找一个游戏及其新闻统计和最近新闻
 pub async fn find_by_id(db: &Db, game_id: &str) -> Result<Option<GameSummary>, DbError> {
     let Some(row) = games::Entity::find_by_id(game_id)
         .one(db.conn())
@@ -52,7 +54,7 @@ pub async fn find_by_id(db: &Db, game_id: &str) -> Result<Option<GameSummary>, D
     Ok(Some(into_summary(row, news_count, recent_news)))
 }
 
-/// 获取指定游戏的封面
+/// 查找一个游戏已配置的兜底封面
 pub async fn find_cover_by_id(db: &Db, game_id: &str) -> Result<Option<String>, DbError> {
     games::Entity::find_by_id(game_id)
         .select_only()
@@ -72,6 +74,7 @@ struct NewsCountRow {
     article: i64,
 }
 
+/// 在数据库中按游戏聚合新闻数量
 async fn news_counts(
     db: &Db,
     game_id: Option<&str>,
@@ -112,6 +115,7 @@ async fn news_counts(
         .collect())
 }
 
+/// 将游戏 Entity、新闻数量及最近新闻组合为应用层摘要
 fn into_summary(row: games::Model, news_count: NewsCount, recent_news: RecentNews) -> GameSummary {
     GameSummary {
         id: row.id,

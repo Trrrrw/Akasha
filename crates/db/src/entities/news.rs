@@ -30,6 +30,8 @@ pub struct Model {
     pub cover: Option<String>,
     pub news_type: NewsType,
     pub video_url: Option<String>,
+    /// 视频时长，单位为毫秒
+    pub video_duration_ms: Option<i64>,
     #[sea_orm(column_type = "JsonBinary")]
     pub raw_data: Json,
 

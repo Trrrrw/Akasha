@@ -1,6 +1,7 @@
+use akasha_application::auth::{AuthUser, GithubUserProfile, RefreshTokenMetadata};
 use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
     TransactionError, TransactionTrait,
 };
 use uuid::Uuid;
@@ -11,18 +12,7 @@ use crate::{
     models::UserGroup,
 };
 
-use super::projections::AuthUser;
-
-pub struct GithubUserProfile {
-    pub provider_user_id: String,
-    pub provider_login: String,
-    pub display_name: String,
-    pub email: Option<String>,
-    pub avatar_url: Option<String>,
-    pub is_admin: bool,
-}
-
-/// 根据 OAuth 用户资料创建或更新本地用户、OAuth 账号和默认用户组
+/// 创建或更新本地用户、OAuth 账号及所需默认用户组
 pub async fn upsert_github_user(db: &Db, profile: GithubUserProfile) -> Result<AuthUser, DbError> {
     let is_admin = profile.is_admin;
 
@@ -74,7 +64,6 @@ pub async fn upsert_github_user(db: &Db, profile: GithubUserProfile) -> Result<A
                     disabled_at: Set(None),
                     created_at: Set(now),
                     updated_at: Set(now),
-                    ..Default::default()
                 }
                 .insert(txn)
                 .await?;
@@ -88,7 +77,6 @@ pub async fn upsert_github_user(db: &Db, profile: GithubUserProfile) -> Result<A
                     avatar_url: Set(profile.avatar_url),
                     created_at: Set(now),
                     updated_at: Set(now),
-                    ..Default::default()
                 }
                 .insert(txn)
                 .await?;
@@ -110,17 +98,12 @@ pub async fn upsert_github_user(db: &Db, profile: GithubUserProfile) -> Result<A
         })
 }
 
-pub struct RefreshTokenMeta {
-    pub user_agent: Option<String>,
-    pub ip_address: Option<String>,
-}
-
-/// 保存 refresh token 的哈希、过期时间和请求来源信息
+/// 保存 refresh token 哈希、过期时间及请求元数据
 pub async fn save_refresh_token(
     db: &Db,
     user_id: Uuid,
     refresh_token_hash: String,
-    meta: RefreshTokenMeta,
+    metadata: RefreshTokenMetadata,
 ) -> Result<user_refresh_tokens::Model, DbError> {
     let now = Utc::now().fixed_offset();
     user_refresh_tokens::ActiveModel {
@@ -132,21 +115,20 @@ pub async fn save_refresh_token(
         replaced_by_token_id: Set(None),
         created_at: Set(now),
         last_used_at: Set(None),
-        user_agent: Set(meta.user_agent),
-        ip_address: Set(meta.ip_address),
-        ..Default::default()
+        user_agent: Set(metadata.user_agent),
+        ip_address: Set(metadata.ip_address),
     }
     .insert(db.conn())
     .await
     .map_err(DbError::Query)
 }
 
-/// 校验并轮换 refresh token
+/// 在一个事务中校验并轮换 refresh token
 pub async fn rotate_refresh_token(
     db: &Db,
     old_refresh_token_hash: String,
     new_refresh_token_hash: String,
-    meta: RefreshTokenMeta,
+    metadata: RefreshTokenMetadata,
 ) -> Result<AuthUser, DbError> {
     db.conn()
         .transaction::<_, AuthUser, DbErr>(|txn| {
@@ -154,6 +136,7 @@ pub async fn rotate_refresh_token(
                 let now = Utc::now().fixed_offset();
                 let old_token = user_refresh_tokens::Entity::find()
                     .filter(user_refresh_tokens::Column::TokenHash.eq(old_refresh_token_hash))
+                    .lock_exclusive()
                     .one(txn)
                     .await?
                     .ok_or_else(|| DbErr::Custom("refresh token not found".to_string()))?;
@@ -186,9 +169,8 @@ pub async fn rotate_refresh_token(
                     replaced_by_token_id: Set(None),
                     created_at: Set(now),
                     last_used_at: Set(None),
-                    user_agent: Set(meta.user_agent),
-                    ip_address: Set(meta.ip_address),
-                    ..Default::default()
+                    user_agent: Set(metadata.user_agent),
+                    ip_address: Set(metadata.ip_address),
                 }
                 .insert(txn)
                 .await?;
@@ -211,7 +193,7 @@ pub async fn rotate_refresh_token(
         .map_err(map_transaction_error)
 }
 
-/// 吊销 refresh token
+/// 在 refresh token 尚未被吊销时将其吊销
 pub async fn revoke_refresh_token(db: &Db, refresh_token_hash: String) -> Result<(), DbError> {
     let now = Utc::now().fixed_offset();
     let token = user_refresh_tokens::Entity::find()
@@ -230,6 +212,7 @@ pub async fn revoke_refresh_token(db: &Db, refresh_token_hash: String) -> Result
     Ok(())
 }
 
+/// 当用户尚不在该组时创建用户组记录
 async fn ensure_user_group<C>(
     db: &C,
     user_id: Uuid,
@@ -250,13 +233,13 @@ where
         user_id: Set(user_id),
         group: Set(group),
         created_at: Set(created_at),
-        ..Default::default()
     }
     .insert(db)
     .await?;
     Ok(())
 }
 
+/// 将 SeaORM 事务失败归一化为数据库错误类型
 fn map_transaction_error(error: TransactionError<DbErr>) -> DbError {
     match error {
         TransactionError::Connection(error) | TransactionError::Transaction(error) => {

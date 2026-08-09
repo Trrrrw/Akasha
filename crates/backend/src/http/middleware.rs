@@ -3,20 +3,21 @@ use std::time::Duration;
 use axum::{
     Router,
     http::{
-        HeaderValue, Method, Request,
+        Method, Request,
         header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
     },
 };
 use tower::ServiceBuilder;
 use tower_http::{
-    cors::CorsLayer,
+    cors::{Any, CorsLayer},
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer},
 };
 use tracing::Level;
 
+/// 应用通用请求 ID、追踪和 CORS 中间件
 pub fn apply(router: Router) -> Router {
-    // init trace layer
+    // 初始化请求追踪层
     let trace_layer = TraceLayer::new_for_http()
         .make_span_with(|request: &Request<_>| {
             let request_id = request
@@ -29,7 +30,8 @@ pub fn apply(router: Router) -> Router {
                 "request",
                 request_id = %request_id,
                 method = %request.method(),
-                uri = %request.uri(),
+                // 查询参数可能含有 OAuth code 等敏感值，日志只记录路径
+                path = %request.uri().path(),
                 version = ?request.version(),
             )
         })
@@ -40,15 +42,9 @@ pub fn apply(router: Router) -> Router {
                 .latency_unit(tower_http::LatencyUnit::Millis),
         );
 
-    // cors
+    // 配置跨域访问规则
     let cors_layer = CorsLayer::new()
-        .allow_origin([
-            HeaderValue::from_static("http://127.0.0.1:5173"),
-            HeaderValue::from_static("http://localhost:5173"),
-            HeaderValue::from_static("http://100.78.33.96:5173"),
-            HeaderValue::from_static("http://192.168.1.3:5173"),
-            HeaderValue::from_static("https://varchive.trrw.cn"),
-        ])
+        .allow_origin(Any)
         .allow_methods([
             Method::GET,
             Method::POST,

@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::{EnvFilter, fmt};
 
+/// 启动 HTTP 服务器并等待操作系统关闭信号
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::from_env().context("failed to load configuration")?;
@@ -32,6 +33,7 @@ async fn main() -> Result<()> {
     .context("server failed")
 }
 
+/// 等待 Ctrl+C 或 SIGTERM 后允许服务器优雅关闭
 async fn shutdown_signal() {
     let ctrl_c = async {
         if let Err(error) = signal::ctrl_c().await {

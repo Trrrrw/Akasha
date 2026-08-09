@@ -1,3 +1,4 @@
+use akasha_application::auth::CurrentUser;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
@@ -7,9 +8,7 @@ use crate::{
     models::UserGroup,
 };
 
-use super::projections::CurrentUser;
-
-/// 查询当前用户资料和用户组
+/// 查找 access token subject 对应的启用用户及用户组关系
 pub async fn find_current_user(db: &Db, user_id: Uuid) -> Result<Option<CurrentUser>, DbError> {
     let Some(user) = users::Entity::find_by_id(user_id)
         .one(db.conn())

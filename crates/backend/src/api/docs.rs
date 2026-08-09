@@ -6,6 +6,7 @@ use crate::state::AppState;
 
 pub(super) const OPENAPI_TITLE: &str = "Akasha";
 
+/// 构建交互式 OpenAPI 文档路由
 pub fn router(api: OpenApi) -> Router<AppState> {
     let scalar = Scalar::with_url("/scalar", api);
     let html = scalar.to_html();

@@ -1,81 +1,36 @@
 use std::collections::HashMap;
 
+use akasha_application::news::{
+    ListNewsFilter, ListNewsRawFilter, NewsRawItem, NewsSource, NewsSummary, RecentNews,
+};
 use sea_orm::{
-    ActiveEnum, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, QueryTrait, prelude::DateTimeWithTimeZone,
+    ActiveEnum, ColumnTrait, Condition, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait, RelationTrait,
 };
 
 use crate::{
     Db, DbError,
     entities::{news, news_sources, news_tags_link},
-    models::{RecentNews, TitleQuery},
+    models::TitleQuery,
 };
 
-use super::projections::{
-    ListNewsFilter, NewsSourceProjection, NewsSourceStats, NewsSourceSummary, NewsSummary,
-};
-
-/// 表示没有关联任何标签的保留筛选值
+/// 表示未关联标签新闻的保留筛选值
 pub const UNTAGGED_TAG_FILTER: &str = "__untagged__";
 
-/// 列出所有新闻来源
-pub async fn list_sources(db: &Db, game_id: &str) -> Result<Vec<NewsSourceProjection>, DbError> {
+/// 列出一个游戏已配置的全部新闻来源
+pub async fn list_sources(db: &Db, game_id: &str) -> Result<Vec<NewsSource>, DbError> {
     let rows = news_sources::Entity::find()
         .filter(news_sources::Column::GameId.eq(game_id))
         .order_by(news_sources::Column::Index, sea_orm::Order::Asc)
+        .order_by_asc(news_sources::Column::Id)
         .all(db.conn())
         .await
         .map_err(DbError::Query)?;
 
-    Ok(rows.into_iter().map(NewsSourceProjection::from).collect())
+    Ok(rows.into_iter().map(NewsSource::from).collect())
 }
 
-/// 获取指定游戏的指定来源信息
-pub async fn find_source_by_id(
-    db: &Db,
-    source_id: &str,
-    game_id: &str,
-) -> Result<Option<NewsSourceSummary>, DbError> {
-    let row = news_sources::Entity::find_by_id((source_id.to_owned(), game_id.to_owned()))
-        .one(db.conn())
-        .await
-        .map_err(DbError::Query)?;
-
-    Ok(row.map(NewsSourceSummary::from))
-}
-
-/// 获取指定游戏的指定来源状态
-pub async fn source_stats(
-    db: &Db,
-    source_id: &str,
-    game_id: &str,
-) -> Result<NewsSourceStats, DbError> {
-    let news_query = news::Entity::find()
-        .filter(news::Column::GameId.eq(game_id))
-        .filter(news::Column::SourceId.eq(source_id));
-
-    let news_count = news_query
-        .clone()
-        .count(db.conn())
-        .await
-        .map_err(DbError::Query)?;
-
-    let latest_release_time = news_query
-        .select_only()
-        .column_as(news::Column::PublishTime.max(), "latest_release_time")
-        .into_tuple::<Option<DateTimeWithTimeZone>>()
-        .one(db.conn())
-        .await
-        .map_err(DbError::Query)?
-        .flatten();
-
-    Ok(NewsSourceStats {
-        news_count,
-        latest_release_time,
-    })
-}
-
-/// 列出新闻
+/// 列出经过筛选和分页的新闻集合
 pub async fn list(db: &Db, filter: ListNewsFilter) -> Result<(u64, Vec<NewsSummary>), DbError> {
     let mut query = news::Entity::find()
         .filter(news::Column::GameId.eq(&filter.game_id))
@@ -129,8 +84,13 @@ pub async fn list(db: &Db, filter: ListNewsFilter) -> Result<(u64, Vec<NewsSumma
         query = query.filter(tag_conditions);
     }
 
-    if let Some(q) = filter.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
-        let title_query = TitleQuery::new(q);
+    if let Some(search_term) = filter
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|search_term| !search_term.is_empty())
+    {
+        let title_query = TitleQuery::new(search_term);
 
         for keyword in title_query.includes {
             query = query.filter(news::Column::Title.contains(&keyword));
@@ -147,14 +107,15 @@ pub async fn list(db: &Db, filter: ListNewsFilter) -> Result<(u64, Vec<NewsSumma
         .await
         .map_err(DbError::Query)?;
 
-    // 在数据库中按请求方向排序后再分页
+    // 在数据库中排序并分页，确保响应规模受限
     let publish_time_order = if filter.reverse {
         sea_orm::Order::Asc
     } else {
         sea_orm::Order::Desc
     };
     let rows = query
-        .order_by(news::Column::PublishTime, publish_time_order)
+        .order_by(news::Column::PublishTime, publish_time_order.clone())
+        .order_by(news::Column::Id, publish_time_order)
         .limit(filter.limit)
         .offset(filter.offset)
         .all(db.conn())
@@ -175,6 +136,53 @@ pub async fn list(db: &Db, filter: ListNewsFilter) -> Result<(u64, Vec<NewsSumma
     Ok((total, items))
 }
 
+/// 按稳定的新闻 ID 顺序读取维护任务需要的原始新闻
+pub async fn list_raw(
+    db: &Db,
+    filter: ListNewsRawFilter,
+) -> Result<(u64, Vec<NewsRawItem>), DbError> {
+    let mut query = news::Entity::find()
+        .filter(news::Column::GameId.eq(&filter.game_id))
+        .filter(news::Column::SourceId.eq(&filter.source_id));
+
+    if let Some(news_id) = filter.news_id.as_deref() {
+        query = query.filter(news::Column::Id.eq(news_id));
+    } else if let Some(after_id) = filter.after_id.as_deref() {
+        query = query.filter(news::Column::Id.gt(after_id));
+    }
+
+    if let Some(news_type) = filter.news_type {
+        let news_type = news::NewsType::try_from_value(&news_type).map_err(DbError::Query)?;
+        query = query.filter(news::Column::NewsType.eq(news_type));
+    }
+
+    let total = query
+        .clone()
+        .count(db.conn())
+        .await
+        .map_err(DbError::Query)?;
+    let rows = query
+        .order_by_asc(news::Column::Id)
+        .limit(filter.limit)
+        .all(db.conn())
+        .await
+        .map_err(DbError::Query)?;
+
+    let news_ids = rows.iter().map(|row| row.id.clone()).collect::<Vec<_>>();
+    let mut tags_map = news_tags_map(db, &filter.game_id, &filter.source_id, &news_ids).await?;
+
+    let items = rows
+        .into_iter()
+        .map(|row| {
+            let tags = tags_map.remove(&row.id).unwrap_or_default();
+            into_raw_item(row, tags)
+        })
+        .collect();
+
+    Ok((total, items))
+}
+
+/// 查找一条新闻并解析其全部标签
 pub async fn find_by_id(
     db: &Db,
     game_id: &str,
@@ -206,48 +214,121 @@ pub async fn find_by_id(
     }
 }
 
-/// 获取一个标签下每种新闻类型的最新新闻
-pub async fn recent_by_tag(
+/// 按共同标签数量和发布时间列出同一来源的相关视频
+pub async fn list_related_videos(
     db: &Db,
     game_id: &str,
     source_id: &str,
-    tag_name: &str,
-) -> Result<RecentNews, DbError> {
-    let article =
-        latest_by_tag_and_type(db, game_id, source_id, tag_name, news::NewsType::Article).await?;
-    let video =
-        latest_by_tag_and_type(db, game_id, source_id, tag_name, news::NewsType::Video).await?;
+    news_id: &str,
+    tags: &[String],
+    limit: u64,
+) -> Result<Vec<NewsSummary>, DbError> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
 
-    let news_ids = article
+    // 先在数据库中聚合共同标签，并只保留最终需要的候选 ID
+    let ranked_ids = if tags.is_empty() {
+        Vec::new()
+    } else {
+        news_tags_link::Entity::find()
+            .select_only()
+            .column(news_tags_link::Column::NewsId)
+            .join(JoinType::InnerJoin, news_tags_link::Relation::News.def())
+            .filter(news_tags_link::Column::GameId.eq(game_id))
+            .filter(news_tags_link::Column::SourceId.eq(source_id))
+            .filter(news_tags_link::Column::NewsId.ne(news_id))
+            .filter(news_tags_link::Column::Name.is_in(tags.iter().cloned()))
+            .filter(news::Column::NewsType.eq(news::NewsType::Video))
+            .group_by(news_tags_link::Column::NewsId)
+            .group_by(news::Column::PublishTime)
+            .order_by_desc(news_tags_link::Column::Name.count())
+            .order_by_desc(news::Column::PublishTime)
+            .order_by_desc(news_tags_link::Column::NewsId)
+            .limit(limit)
+            .into_tuple::<String>()
+            .all(db.conn())
+            .await
+            .map_err(DbError::Query)?
+    };
+
+    // 没有标签或没有匹配项时，回退到同一来源的最新视频
+    let rows = if ranked_ids.is_empty() {
+        news::Entity::find()
+            .filter(news::Column::GameId.eq(game_id))
+            .filter(news::Column::SourceId.eq(source_id))
+            .filter(news::Column::Id.ne(news_id))
+            .filter(news::Column::NewsType.eq(news::NewsType::Video))
+            .order_by_desc(news::Column::PublishTime)
+            .order_by_desc(news::Column::Id)
+            .limit(limit)
+            .all(db.conn())
+            .await
+            .map_err(DbError::Query)?
+    } else {
+        let rows = news::Entity::find()
+            .filter(news::Column::GameId.eq(game_id))
+            .filter(news::Column::SourceId.eq(source_id))
+            .filter(news::Column::Id.is_in(ranked_ids.iter().cloned()))
+            .all(db.conn())
+            .await
+            .map_err(DbError::Query)?;
+        let mut rows_by_id = rows
+            .into_iter()
+            .map(|row| (row.id.clone(), row))
+            .collect::<HashMap<_, _>>();
+
+        ranked_ids
+            .into_iter()
+            .filter_map(|id| rows_by_id.remove(&id))
+            .collect()
+    };
+
+    summaries_with_tags(db, game_id, source_id, rows).await
+}
+
+/// 批量加载全部标签各自最新的文章和视频
+pub async fn recent_by_tags(
+    db: &Db,
+    game_id: &str,
+    source_id: &str,
+) -> Result<HashMap<String, RecentNews>, DbError> {
+    let articles = latest_by_tags_and_type(db, game_id, source_id, news::NewsType::Article).await?;
+    let videos = latest_by_tags_and_type(db, game_id, source_id, news::NewsType::Video).await?;
+    let news_ids = articles
         .iter()
-        .chain(video.iter())
-        .map(|row| row.id.clone())
+        .chain(videos.iter())
+        .map(|(_, row)| row.id.clone())
         .collect::<Vec<_>>();
-    let mut tags_map = if news_ids.is_empty() {
+    let tags_map = if news_ids.is_empty() {
         HashMap::new()
     } else {
         news_tags_map(db, game_id, source_id, &news_ids).await?
     };
+    let mut recent_by_name = HashMap::<String, RecentNews>::new();
 
-    Ok(RecentNews {
-        article: article
-            .into_iter()
-            .map(|row| {
-                let tags = tags_map.remove(&row.id).unwrap_or_default();
-                into_summary(row, tags)
-            })
-            .collect(),
-        video: video
-            .into_iter()
-            .map(|row| {
-                let tags = tags_map.remove(&row.id).unwrap_or_default();
-                into_summary(row, tags)
-            })
-            .collect(),
-    })
+    // 同一条新闻可能同时是多个标签的最近条目，因此标签集合需要按条目克隆
+    for (tag_name, row) in articles {
+        let tags = tags_map.get(&row.id).cloned().unwrap_or_default();
+        recent_by_name
+            .entry(tag_name)
+            .or_default()
+            .article
+            .push(into_summary(row, tags));
+    }
+    for (tag_name, row) in videos {
+        let tags = tags_map.get(&row.id).cloned().unwrap_or_default();
+        recent_by_name
+            .entry(tag_name)
+            .or_default()
+            .video
+            .push(into_summary(row, tags));
+    }
+
+    Ok(recent_by_name)
 }
 
-/// 获取没有标签的新闻中每种类型的最新新闻
+/// 加载最新的未分类文章和视频
 pub async fn recent_untagged(
     db: &Db,
     game_id: &str,
@@ -268,7 +349,7 @@ pub async fn recent_untagged(
     })
 }
 
-/// 获取一个游戏下每种新闻类型的最新新闻
+/// 加载一个游戏最新的文章和视频
 pub async fn recent_by_game(db: &Db, game_id: &str) -> Result<RecentNews, DbError> {
     let article = latest_by_game_and_type(db, game_id, news::NewsType::Article).await?;
     let video = latest_by_game_and_type(db, game_id, news::NewsType::Video).await?;
@@ -285,34 +366,33 @@ pub async fn recent_by_game(db: &Db, game_id: &str) -> Result<RecentNews, DbErro
     })
 }
 
-async fn latest_by_tag_and_type(
+/// 使用 PostgreSQL DISTINCT ON 一次查找每个标签的指定类型最新新闻
+async fn latest_by_tags_and_type(
     db: &Db,
     game_id: &str,
     source_id: &str,
-    tag_name: &str,
     news_type: news::NewsType,
-) -> Result<Option<news::Model>, DbError> {
-    let tag_news_ids = news_tags_link::Entity::find()
-        .select_only()
-        .column(news_tags_link::Column::NewsId)
+) -> Result<Vec<(String, news::Model)>, DbError> {
+    let rows = news_tags_link::Entity::find()
+        .find_also_related(news::Entity)
         .filter(news_tags_link::Column::GameId.eq(game_id))
         .filter(news_tags_link::Column::SourceId.eq(source_id))
-        .filter(news_tags_link::Column::Name.eq(tag_name))
-        .into_query();
-
-    news::Entity::find()
-        .filter(news::Column::GameId.eq(game_id))
-        .filter(news::Column::SourceId.eq(source_id))
         .filter(news::Column::NewsType.eq(news_type))
-        .filter(news::Column::Id.in_subquery(tag_news_ids))
+        .distinct_on([(news_tags_link::Entity, news_tags_link::Column::Name)])
+        .order_by_asc(news_tags_link::Column::Name)
         .order_by_desc(news::Column::PublishTime)
         .order_by_desc(news::Column::Id)
-        .limit(1)
-        .one(db.conn())
+        .all(db.conn())
         .await
-        .map_err(DbError::Query)
+        .map_err(DbError::Query)?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|(link, news)| news.map(|news| (link.name, news)))
+        .collect())
 }
 
+/// 查找指定类型最新的未分类新闻
 async fn latest_untagged_by_type(
     db: &Db,
     game_id: &str,
@@ -339,6 +419,7 @@ async fn latest_untagged_by_type(
         .map_err(DbError::Query)
 }
 
+/// 查找一个游戏指定类型的最新新闻
 async fn latest_by_game_and_type(
     db: &Db,
     game_id: &str,
@@ -355,6 +436,7 @@ async fn latest_by_game_and_type(
         .map_err(DbError::Query)
 }
 
+/// 为一条数据库新闻记录补充标签名称
 async fn summary_with_tags(db: &Db, row: news::Model) -> Result<NewsSummary, DbError> {
     let tags = news_tags_link::Entity::find()
         .select_only()
@@ -370,6 +452,31 @@ async fn summary_with_tags(db: &Db, row: news::Model) -> Result<NewsSummary, DbE
     Ok(into_summary(row, tags))
 }
 
+/// 为一组已排序的数据库新闻记录批量补充标签
+async fn summaries_with_tags(
+    db: &Db,
+    game_id: &str,
+    source_id: &str,
+    rows: Vec<news::Model>,
+) -> Result<Vec<NewsSummary>, DbError> {
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let news_ids = rows.iter().map(|row| row.id.clone()).collect::<Vec<_>>();
+    let mut tags_map = news_tags_map(db, game_id, source_id, &news_ids).await?;
+    let summaries = rows
+        .into_iter()
+        .map(|row| {
+            let tags = tags_map.remove(&row.id).unwrap_or_default();
+            into_summary(row, tags)
+        })
+        .collect();
+
+    Ok(summaries)
+}
+
+/// 通过一次查询获取指定新闻分页的标签
 async fn news_tags_map(
     db: &Db,
     game_id: &str,
@@ -396,9 +503,11 @@ async fn news_tags_map(
     Ok(map)
 }
 
+/// 将数据库记录和预加载标签映射为应用层读取模型
 fn into_summary(row: news::Model, tags: Vec<String>) -> NewsSummary {
     NewsSummary {
         id: row.id,
+        source_id: row.source_id,
         title: row.title,
         publish_time: row.publish_time,
         source_url: row.source_url,
@@ -406,6 +515,24 @@ fn into_summary(row: news::Model, tags: Vec<String>) -> NewsSummary {
         news_type: row.news_type.to_value(),
         tags,
         video_url: row.video_url,
+        video_duration_ms: row.video_duration_ms,
         intro: row.intro,
+    }
+}
+
+/// 将数据库记录和标签转换为维护任务模型
+fn into_raw_item(row: news::Model, tags: Vec<String>) -> NewsRawItem {
+    NewsRawItem {
+        id: row.id,
+        title: row.title,
+        intro: row.intro,
+        publish_time: row.publish_time,
+        source_url: row.source_url,
+        cover: row.cover,
+        news_type: row.news_type.to_value(),
+        tags,
+        video_url: row.video_url,
+        video_duration_ms: row.video_duration_ms,
+        raw_data: row.raw_data,
     }
 }

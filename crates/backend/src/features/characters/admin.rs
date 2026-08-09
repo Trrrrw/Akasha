@@ -1,20 +1,27 @@
-use axum::{Json, extract::State};
+use akasha_application::characters::{SyncCharacterItem, SyncCharactersCommand};
+use axum::{Json, extract::State, http::HeaderMap};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    http::{error::AppError, extractors::DataWriteActor},
+    http::{
+        error::AppError,
+        extractors::{AuditRequest, DataWriteActor},
+    },
     state::AppState,
 };
 
+/// 同步一个游戏角色目录的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct SyncCharactersRequest {
     game_id: String,
-    items: Vec<SyncCharacterItem>,
+    items: Vec<SyncCharacterRequestItem>,
+    audit: Option<AuditRequest>,
 }
 
+/// 角色目录同步请求中的单个角色
 #[derive(Deserialize)]
-pub(crate) struct SyncCharacterItem {
+pub(crate) struct SyncCharacterRequestItem {
     id: String,
     item_id: String,
     name: String,
@@ -26,6 +33,7 @@ pub(crate) struct SyncCharacterItem {
     extra: Value,
 }
 
+/// 角色目录同步后的数量统计响应
 #[derive(Serialize)]
 pub(crate) struct SyncCharactersResponse {
     created: u64,
@@ -33,21 +41,30 @@ pub(crate) struct SyncCharactersResponse {
     total: u64,
 }
 
+/// 同步一个游戏的完整角色目录
 pub(crate) async fn sync(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<SyncCharactersRequest>,
 ) -> Result<Json<SyncCharactersResponse>, AppError> {
-    tracing::info!(actor = %actor.label(), game_id = %body.game_id, chars = body.items.len(), "syncing chars");
+    let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
+    tracing::info!(
+        actor = %actor.label(),
+        game_id = %body.game_id,
+        character_count = body.items.len(),
+        "syncing characters"
+    );
 
-    let result = akasha_db::repositories::characters::sync_chars(
-        state.db(),
-        akasha_db::repositories::characters::SyncCharsInput {
+    let result = state
+        .application()
+        .sync_characters(SyncCharactersCommand {
             game_id: body.game_id,
+            audit,
             items: body
                 .items
                 .into_iter()
-                .map(|item| akasha_db::repositories::characters::SyncCharInput {
+                .map(|item| SyncCharacterItem {
                     id: item.id,
                     item_id: item.item_id,
                     name: item.name,
@@ -55,14 +72,12 @@ pub(crate) async fn sync(
                     gender: item.gender,
                     birthday_month: item.birthday_month,
                     birthday_day: item.birthday_day,
-                    cv: item.cv,
+                    voice_actor: item.cv,
                     extra: item.extra,
                 })
                 .collect(),
-        },
-    )
-    .await
-    .map_err(|err| AppError::Internal(err.into()))?;
+        })
+        .await?;
 
     Ok(Json(SyncCharactersResponse {
         created: result.created,

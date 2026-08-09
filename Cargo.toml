@@ -1,8 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/application",
     "crates/backend",
     "crates/db",
+    "crates/mys",
 ]
 default-members = ["crates/backend"]
 
@@ -22,6 +24,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+uuid = { version = "1", features = ["v4"] }
 
 [profile.release]
 lto = true

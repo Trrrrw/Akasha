@@ -1,15 +1,9 @@
 mod commands;
-pub mod projections;
-pub mod queries;
+mod projections;
+mod queries;
 
-pub use commands::{
-    UpdateNewsInput, UpdateNewsTagsInput, UpdateNewsTagsItem, update_news, update_tags,
-};
-pub use projections::{
-    ListNewsFilter, NewsSourceProjection, NewsSourceStats, NewsSourceSummary, NewsSummary,
-    UpdateNewsResult,
-};
-pub use queries::{
-    UNTAGGED_TAG_FILTER, find_by_id, find_source_by_id, list, list_sources, recent_by_game,
-    recent_by_tag, recent_untagged, source_stats,
+pub(crate) use commands::{replace_news_tags, update_news};
+pub(crate) use queries::{
+    UNTAGGED_TAG_FILTER, find_by_id, list, list_raw, list_related_videos, list_sources,
+    recent_by_game, recent_by_tags, recent_untagged,
 };

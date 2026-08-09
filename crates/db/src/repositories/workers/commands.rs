@@ -3,48 +3,30 @@ use crate::{
     entities::worker_states,
     models::{WorkerPhase, WorkerStatus},
 };
+use akasha_application::workers::{
+    WorkerAcquireRequest, WorkerAcquireResult, WorkerCompleteCommand,
+    WorkerPhase as ApplicationWorkerPhase, WorkerUpdateCheckpointCommand,
+};
 use chrono::{Duration, Utc};
 use sea_orm::{ActiveValue::Set, ColumnTrait, Condition, EntityTrait, QueryFilter};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::projections::WorkerState;
 
 const LEASE_DURATION: Duration = Duration::minutes(2);
 
-pub struct AcquireWorkerInput {
-    pub id: String,
-    pub run_id: String,
-    pub worker_type: String,
-    pub source_id: Option<String>,
-    pub game_id: String,
-}
-
-pub enum AcquireWorkerResult {
-    Acquired(WorkerState),
-    Busy(WorkerState),
-}
-
-pub struct UpdateCheckpointInput {
-    pub id: String,
-    pub run_id: String,
-    pub checkpoint: Value,
-}
-
-pub struct CompleteWorkerInput {
-    pub id: String,
-    pub run_id: String,
-    pub phase: WorkerPhase,
-    pub checkpoint: Value,
-}
-
-pub async fn acquire(db: &Db, input: AcquireWorkerInput) -> Result<AcquireWorkerResult, DbError> {
+/// 在不存在有效竞争租约时获取 worker 租约
+pub async fn acquire_worker(
+    db: &Db,
+    request: WorkerAcquireRequest,
+) -> Result<WorkerAcquireResult, DbError> {
     let now = Utc::now().fixed_offset();
 
     worker_states::Entity::insert(worker_states::ActiveModel {
-        id: Set(input.id.clone()),
-        worker_type: Set(input.worker_type),
-        source_id: Set(input.source_id),
-        game_id: Set(input.game_id),
+        id: Set(request.worker_id.clone()),
+        worker_type: Set(request.worker_type),
+        source_id: Set(request.source_id),
+        game_id: Set(request.game_id),
         phase: Set(WorkerPhase::InitialBackfill),
         status: Set(WorkerStatus::Idle),
         checkpoint: Set(json!({})),
@@ -60,7 +42,7 @@ pub async fn acquire(db: &Db, input: AcquireWorkerInput) -> Result<AcquireWorker
     .await
     .map_err(DbError::Query)?;
 
-    let run_id = input.run_id;
+    let run_id = request.run_id;
     let lease_until = now + LEASE_DURATION;
     let update = worker_states::Entity::update_many()
         .set(worker_states::ActiveModel {
@@ -71,7 +53,7 @@ pub async fn acquire(db: &Db, input: AcquireWorkerInput) -> Result<AcquireWorker
             updated_at: Set(now),
             ..Default::default()
         })
-        .filter(worker_states::Column::Id.eq(&input.id))
+        .filter(worker_states::Column::Id.eq(&request.worker_id))
         .filter(
             Condition::any()
                 .add(worker_states::Column::Status.ne(WorkerStatus::Running))
@@ -84,25 +66,29 @@ pub async fn acquire(db: &Db, input: AcquireWorkerInput) -> Result<AcquireWorker
         .await
         .map_err(DbError::Query)?;
 
-    let state = find_by_id(db, &input.id).await?;
+    let state = find_by_id(db, &request.worker_id).await?;
     if update.rows_affected == 1 {
-        Ok(AcquireWorkerResult::Acquired(state))
+        Ok(WorkerAcquireResult::Acquired(state))
     } else {
-        Ok(AcquireWorkerResult::Busy(state))
+        Ok(WorkerAcquireResult::Busy(state))
     }
 }
 
-pub async fn checkpoint(db: &Db, input: UpdateCheckpointInput) -> Result<bool, DbError> {
+/// 保存检查点并续期匹配的 worker 租约
+pub async fn checkpoint_worker(
+    db: &Db,
+    command: WorkerUpdateCheckpointCommand,
+) -> Result<bool, DbError> {
     let now = Utc::now().fixed_offset();
     let result = worker_states::Entity::update_many()
         .set(worker_states::ActiveModel {
-            checkpoint: Set(input.checkpoint),
+            checkpoint: Set(command.checkpoint),
             lease_until: Set(Some(now + LEASE_DURATION)),
             updated_at: Set(now),
             ..Default::default()
         })
-        .filter(worker_states::Column::Id.eq(input.id))
-        .filter(worker_states::Column::RunId.eq(input.run_id))
+        .filter(worker_states::Column::Id.eq(command.worker_id))
+        .filter(worker_states::Column::RunId.eq(command.run_id))
         .filter(worker_states::Column::Status.eq(WorkerStatus::Running))
         .exec(db.conn())
         .await
@@ -111,7 +97,8 @@ pub async fn checkpoint(db: &Db, input: UpdateCheckpointInput) -> Result<bool, D
     Ok(result.rows_affected == 1)
 }
 
-pub async fn heartbeat(db: &Db, id: String, run_id: String) -> Result<bool, DbError> {
+/// 续期匹配 worker run 的租约
+pub async fn heartbeat_worker(db: &Db, worker_id: String, run_id: String) -> Result<bool, DbError> {
     let now = Utc::now().fixed_offset();
     let result = worker_states::Entity::update_many()
         .set(worker_states::ActiveModel {
@@ -119,7 +106,7 @@ pub async fn heartbeat(db: &Db, id: String, run_id: String) -> Result<bool, DbEr
             updated_at: Set(now),
             ..Default::default()
         })
-        .filter(worker_states::Column::Id.eq(id))
+        .filter(worker_states::Column::Id.eq(worker_id))
         .filter(worker_states::Column::RunId.eq(run_id))
         .filter(worker_states::Column::Status.eq(WorkerStatus::Running))
         .exec(db.conn())
@@ -129,21 +116,22 @@ pub async fn heartbeat(db: &Db, id: String, run_id: String) -> Result<bool, DbEr
     Ok(result.rows_affected == 1)
 }
 
-pub async fn complete(db: &Db, input: CompleteWorkerInput) -> Result<bool, DbError> {
+/// 完成匹配的 worker run 并记录最终检查点
+pub async fn complete_worker(db: &Db, command: WorkerCompleteCommand) -> Result<bool, DbError> {
     let now = Utc::now().fixed_offset();
     let result = worker_states::Entity::update_many()
         .set(worker_states::ActiveModel {
-            phase: Set(input.phase),
+            phase: Set(worker_phase_record(command.phase)),
             status: Set(WorkerStatus::Idle),
-            checkpoint: Set(input.checkpoint),
+            checkpoint: Set(command.checkpoint),
             lease_until: Set(None),
             last_error: Set(None),
             last_success_at: Set(Some(now)),
             updated_at: Set(now),
             ..Default::default()
         })
-        .filter(worker_states::Column::Id.eq(input.id))
-        .filter(worker_states::Column::RunId.eq(input.run_id))
+        .filter(worker_states::Column::Id.eq(command.worker_id))
+        .filter(worker_states::Column::RunId.eq(command.run_id))
         .filter(
             Condition::any()
                 .add(worker_states::Column::Status.eq(WorkerStatus::Running))
@@ -156,17 +144,23 @@ pub async fn complete(db: &Db, input: CompleteWorkerInput) -> Result<bool, DbErr
     Ok(result.rows_affected == 1)
 }
 
-pub async fn fail(db: &Db, id: String, run_id: String, error: String) -> Result<bool, DbError> {
+/// 将匹配的 worker run 标记为失败
+pub async fn fail_worker(
+    db: &Db,
+    worker_id: String,
+    run_id: String,
+    error_message: String,
+) -> Result<bool, DbError> {
     let now = Utc::now().fixed_offset();
     let result = worker_states::Entity::update_many()
         .set(worker_states::ActiveModel {
             status: Set(WorkerStatus::Failed),
             lease_until: Set(None),
-            last_error: Set(Some(error)),
+            last_error: Set(Some(error_message)),
             updated_at: Set(now),
             ..Default::default()
         })
-        .filter(worker_states::Column::Id.eq(id))
+        .filter(worker_states::Column::Id.eq(worker_id))
         .filter(worker_states::Column::RunId.eq(run_id))
         .filter(
             Condition::any()
@@ -180,11 +174,20 @@ pub async fn fail(db: &Db, id: String, run_id: String, error: String) -> Result<
     Ok(result.rows_affected == 1)
 }
 
-async fn find_by_id(db: &Db, id: &str) -> Result<WorkerState, DbError> {
-    worker_states::Entity::find_by_id(id)
+/// 在条件租约更新后加载一个 worker 状态
+async fn find_by_id(db: &Db, worker_id: &str) -> Result<WorkerState, DbError> {
+    worker_states::Entity::find_by_id(worker_id)
         .one(db.conn())
         .await
         .map_err(DbError::Query)?
         .map(WorkerState::from)
-        .ok_or_else(|| DbError::Query(sea_orm::DbErr::RecordNotFound(id.to_owned())))
+        .ok_or_else(|| DbError::Query(sea_orm::DbErr::RecordNotFound(worker_id.to_owned())))
+}
+
+/// 将应用层 worker 阶段转换为 SeaORM 存储的枚举
+fn worker_phase_record(phase: ApplicationWorkerPhase) -> WorkerPhase {
+    match phase {
+        ApplicationWorkerPhase::InitialBackfill => WorkerPhase::InitialBackfill,
+        ApplicationWorkerPhase::Incremental => WorkerPhase::Incremental,
+    }
 }

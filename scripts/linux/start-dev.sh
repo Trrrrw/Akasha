@@ -22,12 +22,8 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-# 启动后端与两个前端开发服务
+# 启动后端开发服务
 (cd "$project_root" && cargo run -p akasha-backend) &
-process_ids+=("$!")
-(cd "$project_root/frontend/admin" && bun run dev) &
-process_ids+=("$!")
-(cd "$project_root/frontend/wiki" && bun run dev) &
 process_ids+=("$!")
 
 wait -n "${process_ids[@]}"

@@ -9,6 +9,7 @@ use crate::{
     state::AppState,
 };
 
+/// 构建配置完整的 Axum router 及共享应用状态
 pub(crate) async fn build(config: Config) -> Result<Router> {
     let state = AppState::new(config).await?;
 
@@ -18,7 +19,6 @@ pub(crate) async fn build(config: Config) -> Result<Router> {
         .merge(healthz::router())
         .merge(site::router())
         .merge(api::docs::router(openapi))
-        .merge(api::auth::router())
         .merge(api::admin::router())
         .merge(v1_router)
         .with_state(state);

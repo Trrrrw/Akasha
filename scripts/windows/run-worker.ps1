@@ -2,14 +2,19 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $workerRoot = Join-Path $projectRoot "worker"
+. (Join-Path $PSScriptRoot "load-env.ps1")
+Import-AkashaEnvironment (Join-Path $projectRoot ".env")
+
 $intervalSeconds = if ($env:WORKER_INTERVAL_SECONDS) {
     [int] $env:WORKER_INTERVAL_SECONDS
 }
 else {
     3600
 }
-. (Join-Path $PSScriptRoot "load-env.ps1")
-Import-AkashaEnvironment (Join-Path $projectRoot ".env")
+
+if ($intervalSeconds -le 0) {
+    throw "WORKER_INTERVAL_SECONDS 必须是正整数"
+}
 
 # 输出 worker 的带时间戳日志
 function Write-WorkerLog {
