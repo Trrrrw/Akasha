@@ -3,6 +3,10 @@ target/
 .agents/
 .codex/
 dist/
+/justfile
+
+config/*.toml
+!config/*.toml.example
 
 .env
 AGENTS.md

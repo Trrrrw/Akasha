@@ -3,6 +3,7 @@ mod app;
 mod config;
 mod features;
 mod http;
+mod maintenance;
 mod mys;
 mod site;
 mod state;

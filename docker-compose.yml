@@ -27,40 +27,22 @@ services:
 
   akasha-backend:
     container_name: akasha-backend
-    image: akasha-backend:latest
-    build:
-      context: .
-      target: akasha
+    image: ghcr.io/trrrrw/akasha-backend:latest
+    # image: crpi-73ao84573omk8qlo.cn-hangzhou.personal.cr.aliyuncs.com/akasha/akasha-backend:latest
     restart: unless-stopped
     depends_on:
       akasha-db:
         condition: service_healthy
     ports:
       - "7040:7040"
-    environment:
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      ASSET_BASE_URL: ${ASSET_BASE_URL}
-      POSTGRES_HOST: akasha-db
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      JWT_SECRET: ${JWT_SECRET}
-      TOKEN_HASH_SECRET: ${TOKEN_HASH_SECRET}
-      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
-      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
-      GITHUB_OAUTH_REDIRECT_URL: ${GITHUB_OAUTH_REDIRECT_URL}
-      ADMIN_GITHUB_ID: ${ADMIN_GITHUB_ID:-}
-      WORKER_TOKEN: ${WORKER_TOKEN}
-      MIYOUSHE_COOKIE: ${MIYOUSHE_COOKIE}
-      RATE_LIMIT_TRUSTED_PROXY_IPS: ${RATE_LIMIT_TRUSTED_PROXY_IPS:-}
-      NEWS_VIDEO_RATE_LIMIT_PER_MINUTE: ${NEWS_VIDEO_RATE_LIMIT_PER_MINUTE:-30}
-      NEWS_VIDEO_RATE_LIMIT_BURST: ${NEWS_VIDEO_RATE_LIMIT_BURST:-10}
-      NEWS_RSS_RATE_LIMIT_PER_MINUTE: ${NEWS_RSS_RATE_LIMIT_PER_MINUTE:-12}
-      NEWS_RSS_RATE_LIMIT_BURST: ${NEWS_RSS_RATE_LIMIT_BURST:-3}
-      NEWS_RSS_MYS_REFRESH_LIMIT: ${NEWS_RSS_MYS_REFRESH_LIMIT:-10}
+    volumes:
+      - ./config:/app/config:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:7040/healthz || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:7040/healthz || exit 1",
+        ]
       interval: 5s
       timeout: 3s
       retries: 12

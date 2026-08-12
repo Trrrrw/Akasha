@@ -28,6 +28,12 @@ const LEGACY_NEWS_COVERS: &[(&str, &str)] = &[
     ),
 ];
 
+/// 数据库连接池等待可用连接的最长时间
+const DATABASE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// 单条数据库语句允许执行的最长时间
+const DATABASE_STATEMENT_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// 建立 PostgreSQL 数据库连接所需的配置
 #[derive(Clone, Default)]
 pub struct DbOptions {
@@ -82,7 +88,9 @@ impl Db {
             .max_connections(100)
             .min_connections(5)
             .connect_timeout(Duration::from_secs(8))
+            .acquire_timeout(DATABASE_ACQUIRE_TIMEOUT)
             .idle_timeout(Duration::from_secs(8))
+            .statement_timeout(DATABASE_STATEMENT_TIMEOUT)
             .sqlx_logging(false);
 
         let connection = Database::connect(connect_options)
@@ -158,8 +166,20 @@ impl Db {
             .col(("publish_time", IndexOrder::Desc))
             .to_owned();
 
+        let audit_created_at_index = Index::create()
+            .if_not_exists()
+            .name("idx_audit_logs_created_at")
+            .table("audit_logs")
+            .col("created_at")
+            .to_owned();
+
         self.conn
             .execute(&news_publish_time_index)
+            .await
+            .map_err(DbError::SyncIndexes)?;
+
+        self.conn
+            .execute(&audit_created_at_index)
             .await
             .map_err(DbError::SyncIndexes)?;
 

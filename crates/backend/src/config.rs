@@ -1,14 +1,21 @@
 use std::{
-    env,
+    env, fs,
+    io::ErrorKind,
     net::{IpAddr, SocketAddr},
+    path::PathBuf,
 };
 
 use akasha_db::DbOptions;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
+use serde::Deserialize;
 
-/// 从进程环境变量读取的运行时配置
+const DEFAULT_CONFIG_FILE: &str = "config/backend.toml";
+
+/// 从配置文件和环境变量读取的运行时配置
 #[derive(Clone)]
 pub struct Config {
+    /// 日志级别过滤器
+    pub log_level: String,
     /// HTTP 服务监听地址
     pub bind_addr: SocketAddr,
     /// 对外公开的静态资源根地址
@@ -25,6 +32,8 @@ pub struct Config {
     pub worker: WorkerConfig,
     /// 新闻公开接口限流配置
     pub public_rate_limits: PublicRateLimitConfig,
+    /// 审计日志保留天数
+    pub audit_log_retention_days: u32,
 }
 
 /// 用于签发和验证应用 token 的密钥
@@ -73,53 +82,203 @@ pub struct PublicRateLimitConfig {
     pub rss_mys_refresh_limit: u32,
 }
 
-impl Config {
-    /// 从环境变量加载并校验完整后端配置
-    pub fn from_env() -> Result<Self> {
-        Ok(Self {
-            bind_addr: env_or("BIND_ADDR", "0.0.0.0:7040")
-                .parse()
-                .context("BIND_ADDR must be a socket address")?,
+/// 配置文件的顶层结构，所有字段都可由环境变量回退或覆盖
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileConfig {
+    server: FileServerConfig,
+    database: FileDatabaseConfig,
+    auth: FileAuthConfig,
+    github: FileGithubConfig,
+    worker: FileWorkerConfig,
+    mys: FileMysConfig,
+    rate_limits: FileRateLimitConfig,
+    audit: FileAuditConfig,
+}
 
-            asset_base_url: required("ASSET_BASE_URL")?.trim_end_matches('/').to_owned(),
-            mys_cookie: optional("MIYOUSHE_COOKIE"),
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileServerConfig {
+    log_level: Option<String>,
+    bind_addr: Option<String>,
+    asset_base_url: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileDatabaseConfig {
+    host: Option<String>,
+    port: Option<String>,
+    user: Option<String>,
+    password: Option<String>,
+    name: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileAuthConfig {
+    jwt_secret: Option<String>,
+    token_hash_secret: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileGithubConfig {
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    redirect_url: Option<String>,
+    admin_github_id: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileWorkerConfig {
+    token: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileMysConfig {
+    cookie: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileRateLimitConfig {
+    trusted_proxy_ips: Option<Vec<String>>,
+    video_requests_per_minute: Option<u32>,
+    video_burst: Option<u32>,
+    rss_requests_per_minute: Option<u32>,
+    rss_burst: Option<u32>,
+    rss_mys_refresh_limit: Option<u32>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileAuditConfig {
+    retention_days: Option<u32>,
+}
+
+impl FileConfig {
+    /// 读取默认路径或环境变量指定的配置文件
+    fn load() -> Result<Self> {
+        let configured_path = env::var("AKASHA_CONFIG_FILE")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from);
+        let path = configured_path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_FILE));
+
+        match fs::read_to_string(&path) {
+            Ok(content) => toml::from_str(&content)
+                .with_context(|| format!("failed to parse config file {}", path.display())),
+            Err(error) if error.kind() == ErrorKind::NotFound && configured_path.is_none() => {
+                Ok(Self::default())
+            }
+            Err(error) => {
+                Err(error).with_context(|| format!("failed to read config file {}", path.display()))
+            }
+        }
+    }
+}
+
+impl Config {
+    /// 从配置文件和环境变量加载并校验完整后端配置
+    pub fn load() -> Result<Self> {
+        let file = FileConfig::load()?;
+
+        Ok(Self {
+            log_level: string_value("LOG_LEVEL", file.server.log_level.as_deref(), "info"),
+            bind_addr: string_value(
+                "BIND_ADDR",
+                file.server.bind_addr.as_deref(),
+                "0.0.0.0:7040",
+            )
+            .parse()
+            .context("BIND_ADDR must be a socket address")?,
+
+            asset_base_url: required_value(
+                "ASSET_BASE_URL",
+                file.server.asset_base_url.as_deref(),
+            )?
+            .trim_end_matches('/')
+            .to_owned(),
+            mys_cookie: optional_value("MIYOUSHE_COOKIE", file.mys.cookie.as_deref()),
 
             database: DbOptions {
-                pg_host: env_or("POSTGRES_HOST", "127.0.0.1"),
-                pg_port: env_or("POSTGRES_PORT", "5432"),
-                pg_user: required("POSTGRES_USER")?,
-                pg_password: required("POSTGRES_PASSWORD")?,
-                pg_database: env_or("POSTGRES_DB", "Akasha"),
+                pg_host: string_value("POSTGRES_HOST", file.database.host.as_deref(), "127.0.0.1"),
+                pg_port: string_value("POSTGRES_PORT", file.database.port.as_deref(), "5432"),
+                pg_user: required_value("POSTGRES_USER", file.database.user.as_deref())?,
+                pg_password: required_value(
+                    "POSTGRES_PASSWORD",
+                    file.database.password.as_deref(),
+                )?,
+                pg_database: string_value("POSTGRES_DB", file.database.name.as_deref(), "Akasha"),
             },
 
             auth: AuthConfig {
-                jwt_secret: required_secret("JWT_SECRET")?,
-                token_hash_secret: required_secret("TOKEN_HASH_SECRET")?,
+                jwt_secret: required_secret("JWT_SECRET", file.auth.jwt_secret.as_deref())?,
+                token_hash_secret: required_secret(
+                    "TOKEN_HASH_SECRET",
+                    file.auth.token_hash_secret.as_deref(),
+                )?,
             },
 
             github: GithubConfig {
-                client_id: required("GITHUB_CLIENT_ID")?,
-                client_secret: required("GITHUB_CLIENT_SECRET")?,
-                redirect_url: required("GITHUB_OAUTH_REDIRECT_URL")?,
-                admin_github_id: env::var("ADMIN_GITHUB_ID")
-                    .ok()
-                    .map(|value| value.parse())
-                    .transpose()
-                    .context("ADMIN_GITHUB_ID must be an unsigned integer")?,
+                client_id: required_value("GITHUB_CLIENT_ID", file.github.client_id.as_deref())?,
+                client_secret: required_value(
+                    "GITHUB_CLIENT_SECRET",
+                    file.github.client_secret.as_deref(),
+                )?,
+                redirect_url: required_value(
+                    "GITHUB_OAUTH_REDIRECT_URL",
+                    file.github.redirect_url.as_deref(),
+                )?,
+                admin_github_id: optional_u64("ADMIN_GITHUB_ID", file.github.admin_github_id)?,
             },
 
             worker: WorkerConfig {
-                token: required_secret("WORKER_TOKEN")?,
+                token: required_secret("WORKER_TOKEN", file.worker.token.as_deref())?,
             },
 
             public_rate_limits: PublicRateLimitConfig {
-                trusted_proxy_ips: ip_address_list("RATE_LIMIT_TRUSTED_PROXY_IPS")?,
-                video_requests_per_minute: positive_u32("NEWS_VIDEO_RATE_LIMIT_PER_MINUTE", 30)?,
-                video_burst: positive_u32("NEWS_VIDEO_RATE_LIMIT_BURST", 10)?,
-                rss_requests_per_minute: positive_u32("NEWS_RSS_RATE_LIMIT_PER_MINUTE", 12)?,
-                rss_burst: positive_u32("NEWS_RSS_RATE_LIMIT_BURST", 3)?,
-                rss_mys_refresh_limit: unsigned_u32("NEWS_RSS_MYS_REFRESH_LIMIT", 10)?,
+                trusted_proxy_ips: ip_address_list(
+                    "RATE_LIMIT_TRUSTED_PROXY_IPS",
+                    file.rate_limits.trusted_proxy_ips.as_deref(),
+                )?,
+                video_requests_per_minute: positive_u32(
+                    "NEWS_VIDEO_RATE_LIMIT_PER_MINUTE",
+                    file.rate_limits.video_requests_per_minute,
+                    30,
+                )?,
+                video_burst: positive_u32(
+                    "NEWS_VIDEO_RATE_LIMIT_BURST",
+                    file.rate_limits.video_burst,
+                    10,
+                )?,
+                rss_requests_per_minute: positive_u32(
+                    "NEWS_RSS_RATE_LIMIT_PER_MINUTE",
+                    file.rate_limits.rss_requests_per_minute,
+                    12,
+                )?,
+                rss_burst: positive_u32(
+                    "NEWS_RSS_RATE_LIMIT_BURST",
+                    file.rate_limits.rss_burst,
+                    3,
+                )?,
+                rss_mys_refresh_limit: unsigned_u32(
+                    "NEWS_RSS_MYS_REFRESH_LIMIT",
+                    file.rate_limits.rss_mys_refresh_limit,
+                    10,
+                )?,
             },
+
+            audit_log_retention_days: positive_u32(
+                "AUDIT_LOG_RETENTION_DAYS",
+                file.audit.retention_days,
+                180,
+            )?,
         })
     }
 }
@@ -131,38 +290,66 @@ impl GithubConfig {
     }
 }
 
-/// 读取必需环境变量，并在缺失时提供上下文错误
-fn required(key: &str) -> Result<String> {
-    env::var(key).with_context(|| format!("missing required environment variable {key}"))
+/// 返回环境变量、配置文件或默认值中的第一个非空字符串
+fn string_value(key: &str, file_value: Option<&str>, default: &str) -> String {
+    env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| file_value.map(ToOwned::to_owned))
+        .unwrap_or_else(|| default.to_owned())
+}
+
+/// 返回环境变量或配置文件中的必需字符串
+fn required_value(key: &str, file_value: Option<&str>) -> Result<String> {
+    env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            file_value
+                .filter(|value| !value.trim().is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .ok_or_else(|| anyhow!("missing required configuration value {key}"))
 }
 
 /// 读取至少包含 32 字节的认证密钥
-fn required_secret(key: &str) -> Result<String> {
+fn required_secret(key: &str, file_value: Option<&str>) -> Result<String> {
     const MIN_SECRET_LENGTH: usize = 32;
 
-    let value = required(key)?;
+    let value = required_value(key, file_value)?;
     if value.len() < MIN_SECRET_LENGTH {
         bail!("{key} must contain at least {MIN_SECRET_LENGTH} bytes");
     }
     Ok(value)
 }
 
-/// 读取可选环境变量，空字符串视为未配置
-fn optional(key: &str) -> Option<String> {
+/// 返回可选的环境变量或配置文件字符串，空字符串视为未配置
+fn optional_value(key: &str, file_value: Option<&str>) -> Option<String> {
     env::var(key)
         .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            file_value
+                .filter(|value| !value.trim().is_empty())
+                .map(ToOwned::to_owned)
+        })
 }
 
-/// 读取环境变量，缺失时返回约定的默认值
-fn env_or(key: &str, default: &str) -> String {
-    env::var(key).unwrap_or_else(|_| default.to_owned())
+/// 读取可选的管理员用户 ID
+fn optional_u64(key: &str, file_value: Option<u64>) -> Result<Option<u64>> {
+    let Some(value) = env::var(key).ok().filter(|value| !value.trim().is_empty()) else {
+        return Ok(file_value);
+    };
+
+    value
+        .parse::<u64>()
+        .map(Some)
+        .with_context(|| format!("{key} must be an unsigned integer"))
 }
 
 /// 读取大于零的 u32 配置并提供明确错误上下文
-fn positive_u32(key: &str, default: u32) -> Result<u32> {
-    let value = unsigned_u32(key, default)?;
+fn positive_u32(key: &str, file_value: Option<u32>, default: u32) -> Result<u32> {
+    let value = unsigned_u32(key, file_value, default)?;
     if value == 0 {
         bail!("{key} must be greater than zero");
     }
@@ -170,26 +357,53 @@ fn positive_u32(key: &str, default: u32) -> Result<u32> {
 }
 
 /// 读取允许为零的 u32 配置并提供明确错误上下文
-fn unsigned_u32(key: &str, default: u32) -> Result<u32> {
-    env_or(key, &default.to_string())
+fn unsigned_u32(key: &str, file_value: Option<u32>, default: u32) -> Result<u32> {
+    let value = env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| file_value.map(|value| value.to_string()))
+        .unwrap_or_else(|| default.to_string());
+
+    value
         .parse::<u32>()
         .with_context(|| format!("{key} must be an unsigned integer"))
 }
 
-/// 读取逗号分隔的 IP 地址列表，空值表示不信任任何代理
-fn ip_address_list(key: &str) -> Result<Vec<IpAddr>> {
-    let Some(value) = optional(key) else {
-        return Ok(Vec::new());
+/// 读取逗号分隔的环境变量或配置文件 IP 地址列表
+fn ip_address_list(key: &str, file_values: Option<&[String]>) -> Result<Vec<IpAddr>> {
+    let values = if let Ok(value) = env::var(key) {
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>()
+    } else {
+        file_values.unwrap_or_default().to_vec()
     };
 
-    value
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+    values
+        .iter()
         .map(|value| {
             value
                 .parse::<IpAddr>()
                 .with_context(|| format!("{key} contains an invalid IP address: {value}"))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FileConfig;
+
+    #[test]
+    fn example_config_is_valid_toml() {
+        let config: FileConfig =
+            toml::from_str(include_str!("../../../config/backend.toml.example"))
+                .expect("backend.toml.example must be valid TOML");
+
+        assert_eq!(config.server.bind_addr.as_deref(), Some("0.0.0.0:7040"));
+        assert_eq!(config.database.name.as_deref(), Some("Akasha"));
+        assert_eq!(config.audit.retention_days, Some(180));
+    }
 }

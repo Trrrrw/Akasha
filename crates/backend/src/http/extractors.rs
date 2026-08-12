@@ -26,7 +26,6 @@ pub(crate) enum DataWriteActor {
 pub(crate) struct AuditRequest {
     pub(crate) operation: Option<String>,
     pub(crate) fields: Option<Vec<String>>,
-    pub(crate) parser_version: Option<u32>,
     pub(crate) worker_id: Option<String>,
     pub(crate) run_id: Option<String>,
 }
@@ -76,7 +75,6 @@ impl DataWriteActor {
                 .map(ToOwned::to_owned),
             metadata: json!({
                 "fields": request.fields,
-                "parser_version": request.parser_version,
                 "worker_id": request.worker_id,
                 "run_id": request.run_id,
             }),

@@ -3,6 +3,8 @@
 .env
 .env.*
 !.env.example
+config/*.toml
+!config/*.toml.example
 target
 data
 .temp

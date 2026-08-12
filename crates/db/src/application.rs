@@ -17,11 +17,22 @@ use akasha_application::{
         WorkerUpdateCheckpointCommand,
     },
 };
+use chrono::{DateTime, FixedOffset};
 use uuid::Uuid;
 
 use crate::{Db, repositories};
 
 impl ApplicationRepository for Db {
+    /// 将过期审计日志清理委托给 SeaORM audit repository
+    async fn delete_audit_logs_before(
+        &self,
+        cutoff: DateTime<FixedOffset>,
+    ) -> RepositoryResult<u64> {
+        repositories::audit::delete_before(self, cutoff)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
     /// 将游戏列表读取委托给 SeaORM 游戏 repository
     async fn list_games(&self) -> RepositoryResult<Vec<GameSummary>> {
         repositories::games::list(self)

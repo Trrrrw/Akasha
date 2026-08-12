@@ -4,7 +4,7 @@ use akasha_application::ApplicationServices;
 use akasha_db::Db;
 use anyhow::Result;
 
-use crate::{Config, http::rate_limit::PublicRateLimiters, mys::MysVideoService};
+use crate::{Config, http::rate_limit::PublicRateLimiters, maintenance, mys::MysVideoService};
 
 /// 暴露给 HTTP handler 和请求提取器的共享依赖
 #[derive(Clone)]
@@ -21,6 +21,7 @@ impl AppState {
     pub async fn new(config: Config) -> Result<Self> {
         let db = Db::init(config.database.clone()).await?;
         let application = ApplicationServices::new(db);
+        maintenance::spawn_audit_log_cleanup(application.clone(), config.audit_log_retention_days);
         let http_client = reqwest::Client::builder()
             .user_agent("akasha-backend")
             .connect_timeout(Duration::from_secs(10))

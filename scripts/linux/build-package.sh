@@ -23,6 +23,8 @@ mkdir -p "$dist_root"
 # 组装后端运行时文件
 cp "$project_root/target/release/akasha-backend" "$dist_root/akasha-backend"
 copy_package_directory "$project_root/assets" "$dist_root/assets"
+mkdir -p "$dist_root/config"
+cp "$project_root/config/backend.toml.example" "$dist_root/config/backend.toml.example"
 cp "$project_root/.env.example" "$dist_root/.env.example"
 
 echo "Created Linux package: $dist_root"

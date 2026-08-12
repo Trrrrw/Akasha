@@ -13,7 +13,7 @@ const APP_VERSION: &str = "2.102.0";
 const DS_SALT: &str = "r3KppdID2yT6ht6P7MxzQykauJj0Cmtg";
 const USER_AGENT_VALUE: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0";
 
-/// 使用 MyS Cookie 换取视频临时签名的客户端
+/// 使用 MyS Cookie 获取视频地址的客户端
 #[derive(Clone)]
 pub struct MysClient {
     http_client: reqwest::Client,
@@ -23,7 +23,7 @@ pub struct MysClient {
 }
 
 impl MysClient {
-    /// 使用默认 HTTP 客户端创建签名客户端
+    /// 使用默认 HTTP 客户端创建视频地址客户端
     pub fn new(cookie: impl Into<String>) -> Result<Self> {
         let http_client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
@@ -32,7 +32,7 @@ impl MysClient {
         Self::with_http_client(http_client, cookie)
     }
 
-    /// 使用调用方提供的 HTTP 客户端创建签名客户端
+    /// 使用调用方提供的 HTTP 客户端创建视频地址客户端
     pub fn with_http_client(
         http_client: reqwest::Client,
         cookie: impl Into<String>,
@@ -53,7 +53,7 @@ impl MysClient {
         })
     }
 
-    /// 按游戏和文章 ID 获取对应视频的当前有效地址
+    /// 按游戏和文章 ID 获取对应视频地址
     pub async fn get_video_url(&self, game: MysGame, post_id: &str) -> Result<Option<MysVideoUrl>> {
         let response = self.request_post_detail(game, post_id).await?;
         let post = response.data.and_then(|data| data.post);
@@ -75,7 +75,7 @@ impl MysClient {
         Ok(video_url)
     }
 
-    /// 请求指定米游社文章详情并由官方接口签发视频地址
+    /// 请求指定米游社文章详情并读取官方视频地址
     async fn request_post_detail(
         &self,
         game: MysGame,
@@ -87,7 +87,7 @@ impl MysClient {
             .append_pair("post_id", post_id)
             .append_pair("read", "1");
 
-        tracing::debug!(gids = game.gids(), post_id, "请求米游社视频签名");
+        tracing::debug!(gids = game.gids(), post_id, "请求米游社视频地址");
 
         let response = self
             .http_client
@@ -122,18 +122,19 @@ impl MysClient {
     }
 }
 
-/// 从官方返回的视频地址解析临时签名和过期时间
+/// 从官方返回的视频地址解析可选临时签名和过期时间
 fn parse_video_url(video_url: &str) -> Result<MysVideoUrl> {
     let parsed = Url::parse(video_url)?;
-    let auth_key = parsed
+    let expires_at = parsed
         .query_pairs()
         .find_map(|(key, value)| (key == "auth_key").then(|| value.into_owned()))
-        .ok_or(MysError::MissingAuthKey)?;
-    let auth_key = MysAuthKey::parse(auth_key)?;
+        .map(MysAuthKey::parse)
+        .transpose()?
+        .map(|auth_key| auth_key.expires_at);
 
     Ok(MysVideoUrl {
         url: video_url.to_owned(),
-        expires_at: auth_key.expires_at,
+        expires_at,
     })
 }
 
@@ -199,7 +200,7 @@ struct Resolution {
 mod tests {
     use chrono::TimeZone;
 
-    use crate::{MysAuthKey, MysError, is_auth_key_valid, with_auth_key};
+    use crate::{MysAuthKey, is_auth_key_valid, with_auth_key};
 
     use super::{cookie_value, parse_video_url};
 
@@ -222,20 +223,22 @@ mod tests {
         assert_eq!(video.url, video_url);
         assert_eq!(
             video.expires_at,
-            chrono::Utc
-                .timestamp_opt(1_786_415_744, 0)
-                .single()
-                .expect("timestamp should be valid")
+            Some(
+                chrono::Utc
+                    .timestamp_opt(1_786_415_744, 0)
+                    .single()
+                    .expect("timestamp should be valid"),
+            )
         );
     }
 
-    /// 拒绝不含 auth_key 的视频地址
+    /// 接受不含 auth_key 的静态视频地址
     #[test]
-    fn rejects_video_url_without_auth_key() {
-        let error = parse_video_url("https://prod-vod-sign.miyoushe.com/video")
-            .expect_err("missing auth_key must fail");
+    fn accepts_video_url_without_auth_key() {
+        let video = parse_video_url("https://vod-static.miyoushe.com/video.mp4")
+            .expect("unsigned video URL should be valid");
 
-        assert!(matches!(error, MysError::MissingAuthKey));
+        assert_eq!(video.expires_at, None);
     }
 
     /// 根据 auth_key 中的时间戳判断有效期

@@ -25,9 +25,6 @@ pub enum MysError {
     #[error("视频地址格式无效")]
     InvalidVideoUrl(#[from] url::ParseError),
 
-    #[error("视频地址缺少 auth_key")]
-    MissingAuthKey,
-
     #[error("auth_key 中的过期时间无效")]
     InvalidAuthKeyExpiration,
 }

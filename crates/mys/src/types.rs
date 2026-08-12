@@ -53,19 +53,20 @@ pub struct MysAuthKey {
     pub expires_at: DateTime<Utc>,
 }
 
-/// 米游社签发的带过期时间视频地址
+/// 米游社返回的视频地址，签名地址带过期时间，静态地址不设置过期时间
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MysVideoUrl {
-    /// 包含临时签名参数的视频地址
+    /// 官方返回的视频地址
     pub url: String,
-    /// 视频地址中签名的失效时间
-    pub expires_at: DateTime<Utc>,
+    /// 视频地址中签名的失效时间，无签名静态地址为 None
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 impl MysVideoUrl {
-    /// 判断视频地址的临时签名此刻是否仍有效
+    /// 判断视频地址此刻是否仍然可以复用
     pub fn is_valid(&self) -> bool {
-        self.expires_at > Utc::now()
+        self.expires_at
+            .is_none_or(|expires_at| expires_at > Utc::now())
     }
 }
 

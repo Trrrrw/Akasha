@@ -1,0 +1,43 @@
+# 将此文件复制为 backend.toml，并替换所有敏感值
+# 容器部署时将整个 config 目录只读挂载到 /app/config
+
+[server]
+log_level = "info"
+bind_addr = "0.0.0.0:7040"
+asset_base_url = ""
+
+[database]
+host = "akasha-db"
+port = "5432"
+user = ""
+password = ""
+name = "Akasha"
+
+[auth]
+jwt_secret = ""
+token_hash_secret = ""
+
+[github]
+client_id = ""
+client_secret = ""
+redirect_url = ""
+# 可选：填写后自动授予对应 GitHub 用户管理员权限
+# admin_github_id = 123456
+
+[worker]
+token = ""
+
+[mys]
+# 未配置时仅禁用米游社视频签名刷新
+cookie = ""
+
+[rate_limits]
+trusted_proxy_ips = []
+video_requests_per_minute = 30
+video_burst = 10
+rss_requests_per_minute = 12
+rss_burst = 3
+rss_mys_refresh_limit = 10
+
+[audit]
+retention_days = 180

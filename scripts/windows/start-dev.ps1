@@ -1,8 +1,9 @@
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-. (Join-Path $PSScriptRoot "load-env.ps1")
-Import-AkashaEnvironment (Join-Path $projectRoot ".env")
+
+# 本机进程通过已映射端口连接开发数据库
+$env:POSTGRES_HOST = "127.0.0.1"
 
 # 启动一个开发进程并保留其输出在当前终端
 function Start-DevelopmentProcess {

@@ -46,6 +46,11 @@ Copy-Item `
     -Destination (Join-Path $distRoot "akasha-backend.exe") `
     -Force
 Copy-PackageDirectory (Join-Path $projectRoot "assets") (Join-Path $distRoot "assets")
+New-Item -ItemType Directory -Path (Join-Path $distRoot "config") -Force | Out-Null
+Copy-Item `
+    -LiteralPath (Join-Path $projectRoot "config/backend.toml.example") `
+    -Destination (Join-Path $distRoot "config/backend.toml.example") `
+    -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot ".env.example") -Destination (Join-Path $distRoot ".env.example") -Force
 
 Write-Host "Created Windows package: $distRoot"

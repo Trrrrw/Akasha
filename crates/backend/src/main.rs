@@ -6,21 +6,21 @@ use tracing_subscriber::{EnvFilter, fmt};
 /// 启动 HTTP 服务器并等待操作系统关闭信号
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = Config::from_env().context("failed to load configuration")?;
+    let config = Config::load().context("failed to load configuration")?;
 
-    let filter = EnvFilter::builder()
-        .with_env_var("LOG_LEVEL")
-        .with_default_directive(tracing::Level::INFO.into())
-        .from_env_lossy();
+    let filter = EnvFilter::try_new(&config.log_level).context("invalid LOG_LEVEL")?;
     fmt().with_env_filter(filter).init();
 
-    let listener = TcpListener::bind(config.bind_addr)
-        .await
-        .with_context(|| format!("failed to bind {}", config.bind_addr))?;
+    let bind_addr = config.bind_addr;
 
+    // 先完成数据库和路由初始化，避免未就绪时接收 worker 请求
     let app = build_app(config)
         .await
         .context("failed to build application")?;
+
+    let listener = TcpListener::bind(bind_addr)
+        .await
+        .with_context(|| format!("failed to bind {bind_addr}"))?;
 
     tracing::info!(addr = %listener.local_addr()?, "listening");
 

@@ -1,9 +1,21 @@
 use akasha_application::audit::{AuditActorType, AuditContext};
-use chrono::Utc;
-use sea_orm::{ActiveValue::Set, DatabaseTransaction, DbErr, EntityTrait};
+use chrono::{DateTime, FixedOffset, Utc};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DatabaseTransaction, DbErr, EntityTrait, QueryFilter,
+};
 use serde_json::{Map, Value, json};
 
-use crate::{entities::audit_logs, models};
+use crate::{Db, entities::audit_logs, models};
+
+/// 删除创建时间早于截止时间的审计日志
+pub(crate) async fn delete_before(db: &Db, cutoff: DateTime<FixedOffset>) -> Result<u64, DbErr> {
+    let result = audit_logs::Entity::delete_many()
+        .filter(audit_logs::Column::CreatedAt.lt(cutoff))
+        .exec(db.conn())
+        .await?;
+
+    Ok(result.rows_affected)
+}
 
 /// 在当前事务中写入一条审计日志
 pub(crate) async fn insert(

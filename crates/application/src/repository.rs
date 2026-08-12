@@ -1,5 +1,7 @@
 use std::future::Future;
 
+use chrono::{DateTime, FixedOffset};
+
 use crate::{
     RepositoryResult,
     auth::{AuthUser, CurrentUser, GithubUserProfile, RefreshTokenMetadata},
@@ -20,6 +22,12 @@ use crate::{
 
 /// 所有 Akasha 应用服务所需的持久化操作
 pub trait ApplicationRepository: Send + Sync {
+    /// 删除创建时间早于截止时间的审计日志
+    fn delete_audit_logs_before(
+        &self,
+        cutoff: DateTime<FixedOffset>,
+    ) -> impl Future<Output = RepositoryResult<u64>> + Send;
+
     /// 列出全部已配置游戏及其新闻摘要
     fn list_games(&self) -> impl Future<Output = RepositoryResult<Vec<GameSummary>>> + Send;
 

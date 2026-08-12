@@ -119,7 +119,9 @@ impl MysVideoService {
 
 /// 判断缓存中的视频地址是否值得继续复用
 fn is_cache_valid(video: &MysVideoUrl) -> bool {
-    video.expires_at > Utc::now() + CACHE_REFRESH_MARGIN
+    video
+        .expires_at
+        .is_none_or(|expires_at| expires_at > Utc::now() + CACHE_REFRESH_MARGIN)
 }
 
 #[cfg(test)]
@@ -141,7 +143,7 @@ mod tests {
             },
             MysVideoUrl {
                 url: "https://video.example/news-1.mp4?auth_key=test".to_owned(),
-                expires_at: Utc::now() + Duration::minutes(5),
+                expires_at: Some(Utc::now() + Duration::minutes(5)),
             },
         );
 
@@ -167,7 +169,7 @@ mod tests {
             },
             MysVideoUrl {
                 url: "https://video.example/news-1.mp4?auth_key=test".to_owned(),
-                expires_at: Utc::now() + Duration::minutes(5),
+                expires_at: Some(Utc::now() + Duration::minutes(5)),
             },
         );
 
@@ -190,7 +192,7 @@ mod tests {
             },
             MysVideoUrl {
                 url: "https://video.example/news-1.mp4?auth_key=test".to_owned(),
-                expires_at: Utc::now() + Duration::minutes(5),
+                expires_at: Some(Utc::now() + Duration::minutes(5)),
             },
         );
         let mut remaining_refreshes = 0;
@@ -202,6 +204,32 @@ mod tests {
 
         assert!(matches!(resolution, MysVideoUrlResolution::Available(_)));
         assert_eq!(remaining_refreshes, 0);
+    }
+
+    /// 无签名静态视频地址在缓存中应长期复用
+    #[tokio::test]
+    async fn reuses_unsigned_video_without_cookie() {
+        let service = MysVideoService::new(reqwest::Client::new(), None).expect("创建视频服务");
+        service.cache.write().await.insert(
+            VideoCacheKey {
+                game_id: "ys".to_owned(),
+                news_id: "news-static".to_owned(),
+            },
+            MysVideoUrl {
+                url: "https://vod-static.miyoushe.com/news-static.mp4".to_owned(),
+                expires_at: None,
+            },
+        );
+
+        let video_url = service
+            .resolve_video_url("ys", "news-static")
+            .await
+            .expect("读取静态视频地址");
+
+        assert_eq!(
+            video_url.as_deref(),
+            Some("https://vod-static.miyoushe.com/news-static.mp4")
+        );
     }
 
     /// 缓存未命中时不得突破请求内刷新预算
