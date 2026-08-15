@@ -112,6 +112,8 @@ jobs:
           push: true
           cache-from: type=gha,scope=akasha-backend
           cache-to: type=gha,scope=akasha-backend,mode=max
+          provenance: false
+          sbom: false
           tags: |
             ghcr.io/trrrrw/${{ env.BACKEND_IMAGE_NAME }}:latest
             ghcr.io/trrrrw/${{ env.BACKEND_IMAGE_NAME }}:${{ github.sha }}
