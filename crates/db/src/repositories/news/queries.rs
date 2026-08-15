@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use akasha_application::news::{
-    ListNewsFilter, ListNewsRawFilter, NewsRawItem, NewsSource, NewsSummary, RecentNews,
+    ListNewsFilter, ListNewsRawFilter, NewsCharacter, NewsRawItem, NewsSource, NewsSummary,
+    RecentNews,
 };
 use chrono::Utc;
 use sea_orm::{
@@ -11,7 +12,7 @@ use sea_orm::{
 
 use crate::{
     Db, DbError,
-    entities::{news, news_sources, news_tags_link},
+    entities::{news, news_characters_link, news_sources, news_tags_link},
     models::TitleQuery,
 };
 
@@ -125,16 +126,7 @@ pub async fn list(db: &Db, filter: ListNewsFilter) -> Result<(u64, Vec<NewsSumma
         .await
         .map_err(DbError::Query)?;
 
-    let news_ids = rows.iter().map(|row| row.id.clone()).collect::<Vec<_>>();
-    let mut tags_map = news_tags_map(db, &filter.game_id, &filter.source_id, &news_ids).await?;
-
-    let items = rows
-        .into_iter()
-        .map(|row| {
-            let tags = tags_map.remove(&row.id).unwrap_or_default();
-            into_summary(row, tags)
-        })
-        .collect();
+    let items = summaries_with_tags(db, &filter.game_id, &filter.source_id, rows).await?;
 
     Ok((total, items))
 }
@@ -210,8 +202,11 @@ pub async fn find_by_id(
                 .all(db.conn())
                 .await
                 .map_err(DbError::Query)?;
+            let mut characters_map =
+                news_characters_map(db, game_id, source_id, &[news_id.to_owned()]).await?;
+            let characters = characters_map.remove(news_id).unwrap_or_default();
 
-            Ok(Some(into_summary(row, tags)))
+            Ok(Some(into_summary(row, tags, characters)))
         }
         None => Ok(None),
     }
@@ -308,24 +303,31 @@ pub async fn recent_by_tags(
     } else {
         news_tags_map(db, game_id, source_id, &news_ids).await?
     };
+    let characters_map = if news_ids.is_empty() {
+        HashMap::new()
+    } else {
+        news_characters_map(db, game_id, source_id, &news_ids).await?
+    };
     let mut recent_by_name = HashMap::<String, RecentNews>::new();
 
     // 同一条新闻可能同时是多个标签的最近条目，因此标签集合需要按条目克隆
     for (tag_name, row) in articles {
         let tags = tags_map.get(&row.id).cloned().unwrap_or_default();
+        let characters = characters_map.get(&row.id).cloned().unwrap_or_default();
         recent_by_name
             .entry(tag_name)
             .or_default()
             .article
-            .push(into_summary(row, tags));
+            .push(into_summary(row, tags, characters));
     }
     for (tag_name, row) in videos {
         let tags = tags_map.get(&row.id).cloned().unwrap_or_default();
+        let characters = characters_map.get(&row.id).cloned().unwrap_or_default();
         recent_by_name
             .entry(tag_name)
             .or_default()
             .video
-            .push(into_summary(row, tags));
+            .push(into_summary(row, tags, characters));
     }
 
     Ok(recent_by_name)
@@ -341,14 +343,8 @@ pub async fn recent_untagged(
     let video = latest_untagged_by_type(db, game_id, source_id, news::NewsType::Video).await?;
 
     Ok(RecentNews {
-        article: article
-            .into_iter()
-            .map(|row| into_summary(row, Vec::new()))
-            .collect(),
-        video: video
-            .into_iter()
-            .map(|row| into_summary(row, Vec::new()))
-            .collect(),
+        article: summaries_with_tags(db, game_id, source_id, article.into_iter().collect()).await?,
+        video: summaries_with_tags(db, game_id, source_id, video.into_iter().collect()).await?,
     })
 }
 
@@ -469,8 +465,16 @@ async fn summary_with_tags(db: &Db, row: news::Model) -> Result<NewsSummary, DbE
         .all(db.conn())
         .await
         .map_err(DbError::Query)?;
+    let mut characters_map = news_characters_map(
+        db,
+        &row.game_id,
+        &row.source_id,
+        std::slice::from_ref(&row.id),
+    )
+    .await?;
+    let characters = characters_map.remove(&row.id).unwrap_or_default();
 
-    Ok(into_summary(row, tags))
+    Ok(into_summary(row, tags, characters))
 }
 
 /// 为一组已排序的数据库新闻记录批量补充标签
@@ -486,15 +490,58 @@ async fn summaries_with_tags(
 
     let news_ids = rows.iter().map(|row| row.id.clone()).collect::<Vec<_>>();
     let mut tags_map = news_tags_map(db, game_id, source_id, &news_ids).await?;
+    let mut characters_map = news_characters_map(db, game_id, source_id, &news_ids).await?;
     let summaries = rows
         .into_iter()
         .map(|row| {
             let tags = tags_map.remove(&row.id).unwrap_or_default();
-            into_summary(row, tags)
+            let characters = characters_map.remove(&row.id).unwrap_or_default();
+            into_summary(row, tags, characters)
         })
         .collect();
 
     Ok(summaries)
+}
+
+/// 通过一次查询获取指定新闻分页的角色
+async fn news_characters_map(
+    db: &Db,
+    game_id: &str,
+    source_id: &str,
+    news_ids: &[String],
+) -> Result<HashMap<String, Vec<NewsCharacter>>, DbError> {
+    if news_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows = news_characters_link::Entity::find()
+        .select_only()
+        .column(news_characters_link::Column::NewsId)
+        .column(news_characters_link::Column::CharacterId)
+        .column(news_characters_link::Column::CharacterItemId)
+        .column(crate::entities::characters::Column::Name)
+        .join(
+            JoinType::InnerJoin,
+            news_characters_link::Relation::Characters.def(),
+        )
+        .filter(news_characters_link::Column::GameId.eq(game_id))
+        .filter(news_characters_link::Column::SourceId.eq(source_id))
+        .filter(news_characters_link::Column::NewsId.is_in(news_ids.iter().cloned()))
+        .order_by_asc(news_characters_link::Column::CharacterId)
+        .order_by_asc(news_characters_link::Column::CharacterItemId)
+        .into_tuple::<(String, String, String, String)>()
+        .all(db.conn())
+        .await
+        .map_err(DbError::Query)?;
+
+    let mut map: HashMap<String, Vec<NewsCharacter>> = HashMap::new();
+    for (news_id, id, item_id, name) in rows {
+        map.entry(news_id)
+            .or_default()
+            .push(NewsCharacter { id, item_id, name });
+    }
+
+    Ok(map)
 }
 
 /// 通过一次查询获取指定新闻分页的标签
@@ -525,7 +572,11 @@ async fn news_tags_map(
 }
 
 /// 将数据库记录和预加载标签映射为应用层读取模型
-fn into_summary(row: news::Model, tags: Vec<String>) -> NewsSummary {
+fn into_summary(
+    row: news::Model,
+    tags: Vec<String>,
+    characters: Vec<NewsCharacter>,
+) -> NewsSummary {
     NewsSummary {
         id: row.id,
         source_id: row.source_id,
@@ -535,6 +586,7 @@ fn into_summary(row: news::Model, tags: Vec<String>) -> NewsSummary {
         cover: row.cover,
         news_type: row.news_type.to_value(),
         tags,
+        characters,
         video_url: row.video_url,
         video_duration_ms: row.video_duration_ms,
         intro: row.intro,

@@ -3,6 +3,7 @@ pub mod characters;
 pub mod game_events;
 pub mod games;
 pub mod news;
+pub mod news_characters_link;
 pub mod news_sources;
 pub mod news_tags;
 pub mod news_tags_link;

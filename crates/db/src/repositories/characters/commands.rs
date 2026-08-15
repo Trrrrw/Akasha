@@ -1,13 +1,18 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use akasha_application::characters::{SyncCharactersCommand, SyncCharactersResult};
 use sea_orm::{
     ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter,
-    QuerySelect, TransactionError, TransactionTrait, sea_query::OnConflict,
+    TransactionError, TransactionTrait, sea_query::OnConflict,
 };
 use serde_json::json;
 
-use crate::{Db, DbError, entities::characters, models::Gender, repositories::audit};
+use crate::{
+    Db, DbError,
+    entities::{characters, news_characters_link},
+    models::Gender,
+    repositories::audit,
+};
 
 /// 在事务中同步一个游戏的角色目录
 pub async fn sync_characters(
@@ -18,6 +23,8 @@ pub async fn sync_characters(
         return Ok(SyncCharactersResult {
             created: 0,
             updated: 0,
+            deleted: 0,
+            changed: false,
             total: 0,
         });
     }
@@ -35,19 +42,62 @@ pub async fn sync_characters(
                         )));
                     }
                 }
-                let existing_keys = characters::Entity::find()
-                    .select_only()
-                    .column(characters::Column::Id)
-                    .column(characters::Column::ItemId)
+                let existing_rows = characters::Entity::find()
                     .filter(characters::Column::GameId.eq(&command.game_id))
-                    .into_tuple::<(String, String)>()
                     .all(txn)
-                    .await?
-                    .into_iter()
+                    .await?;
+                let existing_keys = existing_rows
+                    .iter()
+                    .map(|row| (row.id.clone(), row.item_id.clone()))
                     .collect::<HashSet<_>>();
+                let incoming_values = command
+                    .items
+                    .iter()
+                    .map(|item| {
+                        let gender = match item.gender.as_ref() {
+                            Some(gender) => Some(Gender::try_from_value(gender)?),
+                            None => None,
+                        };
+                        Ok::<_, DbErr>((
+                            (item.id.clone(), item.item_id.clone()),
+                            (
+                                item.name.clone(),
+                                item.description.clone(),
+                                gender,
+                                item.birthday_month,
+                                item.birthday_day,
+                                item.voice_actor.clone(),
+                                item.extra.clone(),
+                            ),
+                        ))
+                    })
+                    .collect::<Result<HashMap<_, _>, DbErr>>()?;
                 let total = command.items.len() as u64;
                 let updated = incoming_keys.intersection(&existing_keys).count() as u64;
                 let created = total - updated;
+                let changed = existing_rows.len() != incoming_values.len()
+                    || existing_rows.iter().any(|row| {
+                        let key = (row.id.clone(), row.item_id.clone());
+                        let Some((
+                            name,
+                            description,
+                            gender,
+                            birthday_month,
+                            birthday_day,
+                            voice_actor,
+                            extra,
+                        )) = incoming_values.get(&key)
+                        else {
+                            return true;
+                        };
+                        row.name != *name
+                            || row.description != *description
+                            || row.gender != *gender
+                            || row.birthday_month != *birthday_month
+                            || row.birthday_day != *birthday_day
+                            || row.cv != *voice_actor
+                            || row.extra != *extra
+                    });
 
                 // 转换并批量 upsert 本次目录中的角色
                 let models = command
@@ -100,6 +150,20 @@ pub async fn sync_characters(
                     .collect::<Vec<_>>();
                 let deleted = stale_keys.len() as u64;
                 if !stale_keys.is_empty() {
+                    let mut stale_link_condition = Condition::any();
+                    for (id, item_id) in &stale_keys {
+                        stale_link_condition = stale_link_condition.add(
+                            Condition::all()
+                                .add(news_characters_link::Column::CharacterId.eq(id))
+                                .add(news_characters_link::Column::CharacterItemId.eq(item_id)),
+                        );
+                    }
+                    news_characters_link::Entity::delete_many()
+                        .filter(news_characters_link::Column::GameId.eq(&command.game_id))
+                        .filter(stale_link_condition)
+                        .exec(txn)
+                        .await?;
+
                     let mut stale_condition = Condition::any();
                     for (id, item_id) in stale_keys {
                         stale_condition = stale_condition.add(
@@ -126,6 +190,7 @@ pub async fn sync_characters(
                         "created": created,
                         "updated": updated,
                         "deleted": deleted,
+                        "changed": changed,
                         "total": total,
                     }),
                 )
@@ -134,6 +199,8 @@ pub async fn sync_characters(
                 Ok(SyncCharactersResult {
                     created,
                     updated,
+                    deleted,
+                    changed,
                     total,
                 })
             })

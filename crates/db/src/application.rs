@@ -9,8 +9,8 @@ use akasha_application::{
     games::GameSummary,
     news::{
         ListNewsFilter, ListNewsRawFilter, NewsRawItem, NewsSeries, NewsSource, NewsSummary,
-        NewsTag, ReplaceNewsTagsCommand, SyncNewsTagsCommand, SyncNewsTagsResult,
-        UpdateNewsCommand, UpdateNewsResult,
+        NewsTag, ReplaceNewsCharactersCommand, ReplaceNewsTagsCommand, SyncNewsTagsCommand,
+        SyncNewsTagsResult, UpdateNewsCommand, UpdateNewsResult,
     },
     workers::{
         WorkerAcquireRequest, WorkerAcquireResult, WorkerCompleteCommand,
@@ -167,6 +167,16 @@ impl ApplicationRepository for Db {
     /// 将新闻标签替换委托给 SeaORM 新闻 repository
     async fn replace_news_tags(&self, command: ReplaceNewsTagsCommand) -> RepositoryResult<()> {
         repositories::news::replace_news_tags(self, command)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    /// 将新闻角色关联替换委托给 SeaORM 新闻 repository
+    async fn replace_news_characters(
+        &self,
+        command: ReplaceNewsCharactersCommand,
+    ) -> RepositoryResult<()> {
+        repositories::news::replace_news_characters(self, command)
             .await
             .map_err(RepositoryError::new)
     }

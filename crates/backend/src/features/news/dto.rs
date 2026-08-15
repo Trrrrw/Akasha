@@ -1,4 +1,4 @@
-use akasha_application::news::{NewsDetailResult, NewsSource, NewsSummary, NewsTag};
+use akasha_application::news::{NewsCharacter, NewsDetailResult, NewsSource, NewsSummary, NewsTag};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -193,12 +193,37 @@ pub(crate) struct NewsItemResponse {
     news_type: String,
     /// 新闻标签
     tags: Vec<String>,
+    /// 标题或正文命中的角色
+    characters: Vec<NewsCharacterResponse>,
     /// 非米游社来源保存的视频地址，米游社视频需要通过专用接口获取
     video_url: Option<String>,
     /// 视频时长，单位为秒
     video_duration: Option<u64>,
     /// 新闻简介，可能包含来源 HTML
     intro: Option<String>,
+}
+
+/// 新闻关联的角色摘要
+#[derive(Serialize, ToSchema)]
+#[schema(description = "新闻关联的角色")]
+pub(crate) struct NewsCharacterResponse {
+    /// 角色记录 ID
+    id: String,
+    /// 游戏内物品 ID
+    item_id: String,
+    /// 角色名称
+    name: String,
+}
+
+impl From<NewsCharacter> for NewsCharacterResponse {
+    /// 将应用层新闻角色转换为公开响应
+    fn from(value: NewsCharacter) -> Self {
+        Self {
+            id: value.id,
+            item_id: value.item_id,
+            name: value.name,
+        }
+    }
 }
 
 /// 相关视频摘要响应
@@ -219,6 +244,8 @@ pub(crate) struct RelatedVideoResponse {
     video_duration: Option<u64>,
     /// 新闻标签
     tags: Vec<String>,
+    /// 标题或正文命中的角色
+    characters: Vec<NewsCharacterResponse>,
 }
 
 impl RelatedVideoResponse {
@@ -240,6 +267,11 @@ impl RelatedVideoResponse {
             ),
             video_duration: value.video_duration_ms.and_then(video_duration_seconds),
             tags: value.tags,
+            characters: value
+                .characters
+                .into_iter()
+                .map(NewsCharacterResponse::from)
+                .collect(),
         }
     }
 }
@@ -319,6 +351,11 @@ impl NewsItemResponse {
             ),
             news_type: value.news_type,
             tags: value.tags,
+            characters: value
+                .characters
+                .into_iter()
+                .map(NewsCharacterResponse::from)
+                .collect(),
             video_url,
             video_duration: value.video_duration_ms.and_then(video_duration_seconds),
             intro: value.intro,
@@ -344,6 +381,7 @@ mod tests {
             cover: None,
             news_type: "video".to_owned(),
             tags: Vec::new(),
+            characters: Vec::new(),
             video_url: video_url.map(ToOwned::to_owned),
             video_duration_ms: None,
             intro: None,

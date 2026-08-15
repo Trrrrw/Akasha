@@ -56,6 +56,8 @@ pub struct SyncCharacterItem {
 pub struct SyncCharactersResult {
     pub created: u64,
     pub updated: u64,
+    pub deleted: u64,
+    pub changed: bool,
     pub total: u64,
 }
 

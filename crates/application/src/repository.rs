@@ -11,8 +11,8 @@ use crate::{
     games::GameSummary,
     news::{
         ListNewsFilter, ListNewsRawFilter, NewsRawItem, NewsSeries, NewsSource, NewsSummary,
-        NewsTag, ReplaceNewsTagsCommand, SyncNewsTagsCommand, SyncNewsTagsResult,
-        UpdateNewsCommand, UpdateNewsResult,
+        NewsTag, ReplaceNewsCharactersCommand, ReplaceNewsTagsCommand, SyncNewsTagsCommand,
+        SyncNewsTagsResult, UpdateNewsCommand, UpdateNewsResult,
     },
     workers::{
         WorkerAcquireRequest, WorkerAcquireResult, WorkerCompleteCommand,
@@ -122,6 +122,12 @@ pub trait ApplicationRepository: Send + Sync {
     fn replace_news_tags(
         &self,
         command: ReplaceNewsTagsCommand,
+    ) -> impl Future<Output = RepositoryResult<()>> + Send;
+
+    /// 替换同一来源多条新闻的角色关联
+    fn replace_news_characters(
+        &self,
+        command: ReplaceNewsCharactersCommand,
     ) -> impl Future<Output = RepositoryResult<()>> + Send;
 
     /// 创建或更新 GitHub 账号关联的本地用户

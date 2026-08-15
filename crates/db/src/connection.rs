@@ -161,6 +161,26 @@ impl Db {
             .col("created_at")
             .to_owned();
 
+        let news_characters_news_index = Index::create()
+            .if_not_exists()
+            .name("idx_news_characters_news")
+            .table("news_characters_link")
+            .col("game_id")
+            .col("source_id")
+            .col("news_id")
+            .to_owned();
+
+        let news_characters_character_index = Index::create()
+            .if_not_exists()
+            .name("idx_news_characters_character")
+            .table("news_characters_link")
+            .col("game_id")
+            .col("source_id")
+            .col("character_id")
+            .col("character_item_id")
+            .col("news_id")
+            .to_owned();
+
         self.conn
             .execute(&news_publish_time_index)
             .await
@@ -168,6 +188,16 @@ impl Db {
 
         self.conn
             .execute(&audit_created_at_index)
+            .await
+            .map_err(DbError::SyncIndexes)?;
+
+        self.conn
+            .execute(&news_characters_news_index)
+            .await
+            .map_err(DbError::SyncIndexes)?;
+
+        self.conn
+            .execute(&news_characters_character_index)
             .await
             .map_err(DbError::SyncIndexes)?;
 
@@ -184,10 +214,20 @@ impl Db {
 
 #[cfg(test)]
 mod tests {
-    use sea_orm::{EntityTrait, PaginatorTrait};
+    use akasha_application::{
+        audit::{AuditActorType, AuditContext},
+        characters::{SyncCharacterItem, SyncCharactersCommand},
+        news::{NewsCharacter, NewsCharacterInput, UpdateNewsCommand},
+    };
+    use chrono::Utc;
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait, PaginatorTrait};
+    use serde_json::json;
 
     use super::*;
-    use crate::entities::games;
+    use crate::{
+        entities::{characters, games},
+        repositories,
+    };
 
     #[tokio::test]
     async fn initializes_sqlite_schema_and_seed_data() {
@@ -202,5 +242,116 @@ mod tests {
             .await
             .expect("seeded games should be queryable");
         assert_eq!(game_count, 7);
+    }
+
+    /// 验证新闻角色关联可以随新闻写入并从公开查询投影读取
+    #[tokio::test]
+    async fn writes_and_reads_news_character_links() {
+        let db = Db::init(DbOptions {
+            sqlite_path: ":memory:".to_owned(),
+        })
+        .await
+        .expect("SQLite schema and seed data should initialize");
+
+        characters::ActiveModel {
+            game_id: Set("ys".to_owned()),
+            id: Set("character-1".to_owned()),
+            item_id: Set("hutao".to_owned()),
+            name: Set("胡桃".to_owned()),
+            description: Set(None),
+            gender: Set(None),
+            birthday_month: Set(None),
+            birthday_day: Set(None),
+            cv: Set(None),
+            extra: Set(json!({})),
+        }
+        .insert(db.conn())
+        .await
+        .expect("character should be inserted");
+
+        repositories::news::update_news(
+            &db,
+            UpdateNewsCommand {
+                game_id: "ys".to_owned(),
+                source_id: "web_cn".to_owned(),
+                id: "news-1".to_owned(),
+                title: "胡桃测试新闻".to_owned(),
+                intro: Some("<p>测试</p>".to_owned()),
+                publish_time: Utc::now().fixed_offset(),
+                source_url: "https://example.com/news-1".to_owned(),
+                cover: None,
+                news_type: "article".to_owned(),
+                video_url: None,
+                video_duration_ms: None,
+                tags: Vec::new(),
+                characters: Some(vec![NewsCharacterInput {
+                    id: "character-1".to_owned(),
+                    item_id: "hutao".to_owned(),
+                    name: "胡桃".to_owned(),
+                }]),
+                raw_data: json!({}),
+                audit: AuditContext {
+                    actor_type: AuditActorType::Worker,
+                    actor_id: Some("test-worker".to_owned()),
+                    operation: "test".to_owned(),
+                    request_id: None,
+                    ip_address: None,
+                    user_agent: None,
+                    metadata: json!({}),
+                },
+            },
+        )
+        .await
+        .expect("news and character link should be written");
+
+        let summary = repositories::news::find_by_id(&db, "ys", "web_cn", "news-1")
+            .await
+            .expect("news should be queryable")
+            .expect("news should exist");
+        assert_eq!(
+            summary.characters,
+            vec![NewsCharacter {
+                id: "character-1".to_owned(),
+                item_id: "hutao".to_owned(),
+                name: "胡桃".to_owned(),
+            }]
+        );
+
+        let sync_result = repositories::characters::sync_characters(
+            &db,
+            SyncCharactersCommand {
+                game_id: "ys".to_owned(),
+                items: vec![SyncCharacterItem {
+                    id: "character-2".to_owned(),
+                    item_id: "nahida".to_owned(),
+                    name: "纳西妲".to_owned(),
+                    description: None,
+                    gender: None,
+                    birthday_month: None,
+                    birthday_day: None,
+                    voice_actor: None,
+                    extra: json!({}),
+                }],
+                audit: AuditContext {
+                    actor_type: AuditActorType::Worker,
+                    actor_id: Some("test-worker".to_owned()),
+                    operation: "test".to_owned(),
+                    request_id: None,
+                    ip_address: None,
+                    user_agent: None,
+                    metadata: json!({}),
+                },
+            },
+        )
+        .await
+        .expect("character directory should be synchronized");
+        assert!(sync_result.changed);
+        assert_eq!(sync_result.deleted, 1);
+
+        let summary = repositories::news::find_by_id(&db, "ys", "web_cn", "news-1")
+            .await
+            .expect("news should remain queryable")
+            .expect("news should still exist");
+        assert!(summary.characters.is_empty());
     }
 }

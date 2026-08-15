@@ -1,5 +1,8 @@
+use std::collections::HashSet;
+
 use akasha_application::news::{
-    NewsSummary, ReplaceNewsTagsCommand, UpdateNewsCommand, UpdateNewsResult,
+    NewsCharacter, NewsCharacterInput, NewsSummary, ReplaceNewsCharactersCommand,
+    ReplaceNewsTagsCommand, UpdateNewsCommand, UpdateNewsResult,
 };
 use chrono::Utc;
 use sea_orm::{
@@ -10,7 +13,7 @@ use serde_json::json;
 
 use crate::{
     Db, DbError,
-    entities::{news, news_tags_link},
+    entities::{news, news_characters_link, news_tags_link},
     repositories::audit,
 };
 
@@ -47,10 +50,29 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                 } else {
                     Vec::new()
                 };
+                let existing_characters = if command.characters.is_some() && existing.is_some() {
+                    news_characters_link::Entity::find()
+                        .select_only()
+                        .column(news_characters_link::Column::CharacterId)
+                        .column(news_characters_link::Column::CharacterItemId)
+                        .filter(news_characters_link::Column::GameId.eq(&command.game_id))
+                        .filter(news_characters_link::Column::SourceId.eq(&command.source_id))
+                        .filter(news_characters_link::Column::NewsId.eq(&command.id))
+                        .into_tuple::<(String, String)>()
+                        .all(txn)
+                        .await?
+                } else {
+                    Vec::new()
+                };
+                if let Some(characters) = command.characters.as_ref() {
+                    validate_character_inputs(characters)?;
+                }
                 let changed_fields = existing
                     .as_ref()
-                    .map(|row| changed_news_fields(row, &command, &existing_tags))
-                    .unwrap_or_else(created_news_fields);
+                    .map(|row| {
+                        changed_news_fields(row, &command, &existing_tags, &existing_characters)
+                    })
+                    .unwrap_or_else(|| created_news_fields(command.characters.is_some()));
 
                 if let Some(row) = existing {
                     let mut active: news::ActiveModel = row.into();
@@ -102,6 +124,28 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                     .await?;
                 }
 
+                // 角色字段由 worker 根据当前角色目录生成，写入新闻时与正文保持同一事务
+                if let Some(characters) = command.characters.as_ref() {
+                    news_characters_link::Entity::delete_many()
+                        .filter(news_characters_link::Column::GameId.eq(&command.game_id))
+                        .filter(news_characters_link::Column::SourceId.eq(&command.source_id))
+                        .filter(news_characters_link::Column::NewsId.eq(&command.id))
+                        .exec(txn)
+                        .await?;
+
+                    for character in characters {
+                        news_characters_link::ActiveModel {
+                            game_id: Set(command.game_id.clone()),
+                            source_id: Set(command.source_id.clone()),
+                            news_id: Set(command.id.clone()),
+                            character_id: Set(character.id.clone()),
+                            character_item_id: Set(character.item_id.clone()),
+                        }
+                        .insert(txn)
+                        .await?;
+                    }
+                }
+
                 if created || !changed_fields.is_empty() {
                     audit::insert(
                         txn,
@@ -132,6 +176,12 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                         cover: command.cover,
                         news_type: command.news_type,
                         tags: command.tags,
+                        characters: command
+                            .characters
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(NewsCharacter::from)
+                            .collect(),
                         video_url: command.video_url,
                         video_duration_ms: command.video_duration_ms,
                         intro: command.intro,
@@ -152,6 +202,7 @@ fn changed_news_fields(
     row: &news::Model,
     command: &UpdateNewsCommand,
     existing_tags: &[String],
+    existing_characters: &[(String, String)],
 ) -> Vec<&'static str> {
     let mut fields = Vec::new();
     if row.title != command.title {
@@ -185,6 +236,18 @@ fn changed_news_fields(
     if previous_tags != next_tags {
         fields.push("tags");
     }
+    if let Some(characters) = command.characters.as_ref() {
+        let mut previous_characters = existing_characters.to_vec();
+        previous_characters.sort();
+        let mut next_characters = characters
+            .iter()
+            .map(|character| (character.id.clone(), character.item_id.clone()))
+            .collect::<Vec<_>>();
+        next_characters.sort();
+        if previous_characters != next_characters {
+            fields.push("characters");
+        }
+    }
     if row.raw_data != command.raw_data {
         fields.push("raw_data");
     }
@@ -192,7 +255,7 @@ fn changed_news_fields(
 }
 
 /// 返回新建新闻会写入的字段集合
-fn created_news_fields() -> Vec<&'static str> {
+fn created_news_fields(include_characters: bool) -> Vec<&'static str> {
     let mut fields = vec![
         "title",
         "intro",
@@ -205,7 +268,24 @@ fn created_news_fields() -> Vec<&'static str> {
         "raw_data",
     ];
     fields.push("tags");
+    if include_characters {
+        fields.push("characters");
+    }
     fields
+}
+
+/// 校验一次完整写入中的角色主键不重复
+fn validate_character_inputs(characters: &[NewsCharacterInput]) -> Result<(), DbErr> {
+    let mut keys = HashSet::with_capacity(characters.len());
+    for character in characters {
+        if !keys.insert((character.id.clone(), character.item_id.clone())) {
+            return Err(DbErr::Custom(format!(
+                "duplicated news character key: id={}, item_id={}",
+                character.id, character.item_id
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// 替换一个来源下多条新闻的标签关联
@@ -244,6 +324,64 @@ pub async fn replace_news_tags(db: &Db, command: ReplaceNewsTagsCommand) -> Resu
                         Some(format!("{}:{}", command.game_id, command.source_id)),
                         json!({
                             "changed_fields": ["tags"],
+                            "news_count": update_count,
+                        }),
+                    )
+                    .await?;
+                }
+
+                Ok(())
+            })
+        })
+        .await
+        .map_err(|error| match error {
+            TransactionError::Connection(error) | TransactionError::Transaction(error) => {
+                DbError::Query(error)
+            }
+        })
+}
+
+/// 替换一个来源下多条新闻的角色关联
+pub async fn replace_news_characters(
+    db: &Db,
+    command: ReplaceNewsCharactersCommand,
+) -> Result<(), DbError> {
+    db.conn()
+        .transaction::<_, (), DbErr>(|txn| {
+            Box::pin(async move {
+                let update_count = command.updates.len();
+                for update in command.updates {
+                    validate_character_inputs(&update.characters)?;
+
+                    news_characters_link::Entity::delete_many()
+                        .filter(news_characters_link::Column::GameId.eq(&command.game_id))
+                        .filter(news_characters_link::Column::SourceId.eq(&command.source_id))
+                        .filter(news_characters_link::Column::NewsId.eq(&update.id))
+                        .exec(txn)
+                        .await?;
+
+                    for character in update.characters {
+                        news_characters_link::ActiveModel {
+                            game_id: Set(command.game_id.clone()),
+                            source_id: Set(command.source_id.clone()),
+                            news_id: Set(update.id.clone()),
+                            character_id: Set(character.id),
+                            character_item_id: Set(character.item_id),
+                        }
+                        .insert(txn)
+                        .await?;
+                    }
+                }
+
+                if update_count > 0 {
+                    audit::insert(
+                        txn,
+                        &command.audit,
+                        "news.characters_replace",
+                        Some("news_source"),
+                        Some(format!("{}:{}", command.game_id, command.source_id)),
+                        json!({
+                            "changed_fields": ["characters"],
                             "news_count": update_count,
                         }),
                     )

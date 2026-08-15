@@ -1,6 +1,6 @@
 use akasha_application::news::{
-    ListNewsRawFilter, NewsTagInput, NewsTagUpdate, ReplaceNewsTagsCommand, SyncNewsTagsCommand,
-    UpdateNewsCommand,
+    ListNewsRawFilter, NewsCharacterInput, NewsCharacterUpdate, NewsTagInput, NewsTagUpdate,
+    ReplaceNewsCharactersCommand, ReplaceNewsTagsCommand, SyncNewsTagsCommand, UpdateNewsCommand,
 };
 use axum::{
     Json,
@@ -37,6 +37,8 @@ pub(crate) struct UpdateNewsRequest {
     /// 视频时长，单位为毫秒
     video_duration_ms: Option<i64>,
     tags: Vec<String>,
+    /// 角色关联，缺省时保留已有关系
+    characters: Option<Vec<UpdateNewsCharacterRequest>>,
     raw_data: Value,
     audit: Option<AuditRequest>,
 }
@@ -75,6 +77,14 @@ pub(crate) struct NewsRawItemResponse {
     video_url: Option<String>,
     video_duration_ms: Option<i64>,
     raw_data: Value,
+}
+
+/// 新闻写入请求中的角色关联
+#[derive(Deserialize)]
+pub(crate) struct UpdateNewsCharacterRequest {
+    id: String,
+    item_id: String,
+    name: String,
 }
 
 /// 读取 worker 重新解析所需的原始新闻
@@ -161,6 +171,16 @@ pub(crate) async fn update_news(
             video_url: body.video_url,
             video_duration_ms: body.video_duration_ms,
             tags: body.tags,
+            characters: body.characters.map(|characters| {
+                characters
+                    .into_iter()
+                    .map(|character| NewsCharacterInput {
+                        id: character.id,
+                        item_id: character.item_id,
+                        name: character.name,
+                    })
+                    .collect()
+            }),
             raw_data: body.raw_data,
             audit,
         })
@@ -315,4 +335,64 @@ pub(crate) struct UpdateNewsTagsRequest {
 pub(crate) struct UpdateNewsTagsItemRequest {
     id: String,
     tags: Vec<String>,
+}
+
+/// 替换多个新闻角色集合的 HTTP 请求体
+#[derive(Deserialize)]
+pub(crate) struct UpdateNewsCharactersRequest {
+    game_id: String,
+    source_id: String,
+    updates: Vec<UpdateNewsCharactersItemRequest>,
+    audit: Option<AuditRequest>,
+}
+
+/// HTTP 请求体中一条新闻的替换角色集合
+#[derive(Deserialize)]
+pub(crate) struct UpdateNewsCharactersItemRequest {
+    id: String,
+    characters: Vec<UpdateNewsCharacterRequest>,
+}
+
+/// 替换同一来源多条新闻的角色关联
+pub(crate) async fn update_characters(
+    actor: DataWriteActor,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<UpdateNewsCharactersRequest>,
+) -> Result<StatusCode, AppError> {
+    let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
+    tracing::info!(
+        actor = %actor.label(),
+        game_id = %body.game_id,
+        source_id = %body.source_id,
+        updates = body.updates.len(),
+        "updating news characters"
+    );
+
+    state
+        .application()
+        .replace_news_characters(ReplaceNewsCharactersCommand {
+            game_id: body.game_id,
+            source_id: body.source_id,
+            updates: body
+                .updates
+                .into_iter()
+                .map(|update| NewsCharacterUpdate {
+                    id: update.id,
+                    characters: update
+                        .characters
+                        .into_iter()
+                        .map(|character| NewsCharacterInput {
+                            id: character.id,
+                            item_id: character.item_id,
+                            name: character.name,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            audit,
+        })
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }

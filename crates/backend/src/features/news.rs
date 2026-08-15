@@ -37,6 +37,7 @@ pub(crate) fn admin_router() -> Router<AppState> {
         .route("/news/raw", get(admin::list_raw))
         .route("/news/tags/sync", post(admin::sync_tags))
         .route("/news/tags/update", post(admin::update_tags))
+        .route("/news/characters/update", post(admin::update_characters))
 }
 
 /// 返回公开接口统一使用的中国标准时区

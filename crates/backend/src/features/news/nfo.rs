@@ -402,6 +402,7 @@ mod tests {
             cover: Some("/assets/video-1.jpg".to_owned()),
             news_type: "video".to_owned(),
             tags: vec!["角色 & PV".to_owned()],
+            characters: Vec::new(),
             video_url: Some("https://video.example.com/video-1.mp4".to_owned()),
             video_duration_ms: Some(154_633),
             intro: Some("<p>第一段 <strong>简介</strong></p><p>第二段</p>".to_owned()),

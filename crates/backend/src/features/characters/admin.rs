@@ -38,6 +38,8 @@ pub(crate) struct SyncCharacterRequestItem {
 pub(crate) struct SyncCharactersResponse {
     created: u64,
     updated: u64,
+    deleted: u64,
+    changed: bool,
     total: u64,
 }
 
@@ -82,6 +84,8 @@ pub(crate) async fn sync(
     Ok(Json(SyncCharactersResponse {
         created: result.created,
         updated: result.updated,
+        deleted: result.deleted,
+        changed: result.changed,
         total: result.total,
     }))
 }

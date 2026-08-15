@@ -1,6 +1,6 @@
 use sea_orm::entity::prelude::*;
 
-use crate::entities::{games, news_sources, news_tags};
+use crate::entities::{characters, games, news_sources, news_tags};
 
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
@@ -41,6 +41,8 @@ pub struct Model {
 
     #[sea_orm(has_many, via = "news_tags_link")]
     pub tags: HasMany<news_tags::Entity>,
+    #[sea_orm(has_many, via = "news_characters_link")]
+    pub characters: HasMany<characters::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

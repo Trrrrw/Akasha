@@ -1,6 +1,9 @@
 use sea_orm::entity::prelude::*;
 
-use crate::{entities::games, models::Gender};
+use crate::{
+    entities::{games, news},
+    models::Gender,
+};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
@@ -24,6 +27,8 @@ pub struct Model {
 
     #[sea_orm(belongs_to, from = "game_id", to = "id")]
     pub game: HasOne<games::Entity>,
+    #[sea_orm(has_many, via = "news_characters_link")]
+    pub news: HasMany<news::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

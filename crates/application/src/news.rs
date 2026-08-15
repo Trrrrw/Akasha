@@ -56,10 +56,38 @@ pub struct NewsSummary {
     pub cover: Option<String>,
     pub news_type: String,
     pub tags: Vec<String>,
+    /// 标题或正文命中的游戏角色
+    pub characters: Vec<NewsCharacter>,
     pub video_url: Option<String>,
     /// 视频时长，单位为毫秒
     pub video_duration_ms: Option<i64>,
     pub intro: Option<String>,
+}
+
+/// 新闻关联的角色摘要
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewsCharacter {
+    pub id: String,
+    pub item_id: String,
+    pub name: String,
+}
+
+/// 新闻角色关联写入数据
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewsCharacterInput {
+    pub id: String,
+    pub item_id: String,
+    pub name: String,
+}
+
+impl From<NewsCharacterInput> for NewsCharacter {
+    fn from(value: NewsCharacterInput) -> Self {
+        Self {
+            id: value.id,
+            item_id: value.item_id,
+            name: value.name,
+        }
+    }
 }
 
 /// 用于维护任务的新闻原始数据和当前投影
@@ -162,6 +190,8 @@ pub struct UpdateNewsCommand {
     /// 视频时长，单位为毫秒
     pub video_duration_ms: Option<i64>,
     pub tags: Vec<String>,
+    /// 角色关联，未提供时保留数据库中的既有关联
+    pub characters: Option<Vec<NewsCharacterInput>>,
     pub raw_data: Value,
     pub audit: AuditContext,
 }
@@ -220,6 +250,22 @@ pub struct ReplaceNewsTagsCommand {
 pub struct NewsTagUpdate {
     pub id: String,
     pub tags: Vec<String>,
+}
+
+/// 替换一个来源多条新闻的角色关联
+#[derive(Debug, Clone)]
+pub struct ReplaceNewsCharactersCommand {
+    pub game_id: String,
+    pub source_id: String,
+    pub updates: Vec<NewsCharacterUpdate>,
+    pub audit: AuditContext,
+}
+
+/// 一条新闻的替换角色集合
+#[derive(Debug, Clone)]
+pub struct NewsCharacterUpdate {
+    pub id: String,
+    pub characters: Vec<NewsCharacterInput>,
 }
 
 impl<R> ApplicationServices<R>
@@ -374,6 +420,15 @@ where
         command: ReplaceNewsTagsCommand,
     ) -> Result<(), ApplicationError> {
         self.repository.replace_news_tags(command).await?;
+        Ok(())
+    }
+
+    /// 替换一个来源多条新闻的角色关联
+    pub async fn replace_news_characters(
+        &self,
+        command: ReplaceNewsCharactersCommand,
+    ) -> Result<(), ApplicationError> {
+        self.repository.replace_news_characters(command).await?;
         Ok(())
     }
 }
