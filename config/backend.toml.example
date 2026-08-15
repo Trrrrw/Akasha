@@ -7,11 +7,7 @@ bind_addr = "0.0.0.0:7040"
 asset_base_url = ""
 
 [database]
-host = "akasha-db"
-port = "5432"
-user = ""
-password = ""
-name = "Akasha"
+path = "data/akasha.sqlite"
 
 [auth]
 jwt_secret = ""

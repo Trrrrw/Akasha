@@ -4,7 +4,7 @@ use sea_orm::{
     ActiveValue::Set,
     ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
     QueryFilter,
-    sea_query::{ColumnDef, Index, IndexOrder, Table},
+    sea_query::{Index, IndexOrder},
 };
 
 use crate::{entities::news, error::DbError, seed};
@@ -31,22 +31,14 @@ const LEGACY_NEWS_COVERS: &[(&str, &str)] = &[
 /// 数据库连接池等待可用连接的最长时间
 const DATABASE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(8);
 
-/// 单条数据库语句允许执行的最长时间
-const DATABASE_STATEMENT_TIMEOUT: Duration = Duration::from_secs(30);
+/// SQLite 等待其他写事务完成的最长时间
+const DATABASE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// 建立 PostgreSQL 数据库连接所需的配置
+/// 建立 SQLite 数据库连接所需的配置
 #[derive(Clone, Default)]
 pub struct DbOptions {
-    /// PostgreSQL 主机名或地址
-    pub pg_host: String,
-    /// PostgreSQL 端口
-    pub pg_port: String,
-    /// PostgreSQL 用户名
-    pub pg_user: String,
-    /// PostgreSQL 密码，不实现 Debug 以避免误写入日志
-    pub pg_password: String,
-    /// PostgreSQL 数据库名
-    pub pg_database: String,
+    /// SQLite 数据库文件路径
+    pub sqlite_path: String,
 }
 
 /// 已初始化的 SeaORM 数据库及 schema 同步入口
@@ -65,33 +57,44 @@ impl Db {
     pub async fn init(options: DbOptions) -> Result<Self, DbError> {
         let db = Self::connect(options).await?;
         db.sync_schema().await?;
-        db.sync_column_constraints().await?;
         db.normalize_legacy_news_covers().await?;
         db.sync_indexes().await?;
         db.seed_required_data().await?;
         Ok(db)
     }
 
-    /// 根据连接选项建立带连接池配置的 PostgreSQL 连接
+    /// 根据连接选项建立带连接池配置的 SQLite 连接
     async fn connect(options: DbOptions) -> Result<Self, DbError> {
-        let url = format!(
-            "postgres://{}:{}@{}:{}/{}",
-            options.pg_user,
-            options.pg_password,
-            options.pg_host,
-            options.pg_port,
-            options.pg_database,
-        );
+        let database_path = std::path::Path::new(&options.sqlite_path);
+        if let Some(parent) = database_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(DbError::PrepareDirectory)?;
+        }
+
+        let in_memory = options.sqlite_path == ":memory:";
+        let url = if in_memory {
+            "sqlite::memory:".to_owned()
+        } else {
+            format!("sqlite://{}?mode=rwc", options.sqlite_path)
+        };
 
         let mut connect_options = ConnectOptions::new(url);
         connect_options
-            .max_connections(100)
-            .min_connections(5)
+            .max_connections(if in_memory { 1 } else { 4 })
+            .min_connections(1)
             .connect_timeout(Duration::from_secs(8))
             .acquire_timeout(DATABASE_ACQUIRE_TIMEOUT)
             .idle_timeout(Duration::from_secs(8))
-            .statement_timeout(DATABASE_STATEMENT_TIMEOUT)
             .sqlx_logging(false);
+        connect_options.map_sqlx_sqlite_opts(|options| {
+            options
+                .foreign_keys(true)
+                .busy_timeout(DATABASE_BUSY_TIMEOUT)
+                .pragma("journal_mode", "WAL")
+                .pragma("synchronous", "NORMAL")
+                .pragma("cache_size", "-8192")
+        });
 
         let connection = Database::connect(connect_options)
             .await
@@ -112,7 +115,7 @@ impl Db {
     }
 
     /// 将旧 worker 写入的占位封面归一化为 NULL
-    async fn normalize_legacy_news_covers(&self) -> Result<(), DbError> {
+    pub(crate) async fn normalize_legacy_news_covers(&self) -> Result<(), DbError> {
         news::Entity::update_many()
             .set(news::ActiveModel {
                 cover: Set(None),
@@ -136,21 +139,6 @@ impl Db {
                 .await
                 .map_err(DbError::NormalizeLegacyData)?;
         }
-
-        Ok(())
-    }
-
-    /// 同步 Entity schema sync 不会修改的列约束
-    async fn sync_column_constraints(&self) -> Result<(), DbError> {
-        let alter_news_cover = Table::alter()
-            .table("news")
-            .modify_column(ColumnDef::new("cover").null())
-            .to_owned();
-
-        self.conn
-            .execute(&alter_news_cover)
-            .await
-            .map_err(DbError::SyncSchema)?;
 
         Ok(())
     }
@@ -187,9 +175,32 @@ impl Db {
     }
 
     /// 写入服务启动必须存在的基础数据
-    async fn seed_required_data(&self) -> Result<(), DbError> {
+    pub(crate) async fn seed_required_data(&self) -> Result<(), DbError> {
         seed::apply(&self.conn)
             .await
             .map_err(DbError::SeedRequiredData)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::{EntityTrait, PaginatorTrait};
+
+    use super::*;
+    use crate::entities::games;
+
+    #[tokio::test]
+    async fn initializes_sqlite_schema_and_seed_data() {
+        let db = Db::init(DbOptions {
+            sqlite_path: ":memory:".to_owned(),
+        })
+        .await
+        .expect("SQLite schema and seed data should initialize");
+
+        let game_count = games::Entity::find()
+            .count(db.conn())
+            .await
+            .expect("seeded games should be queryable");
+        assert_eq!(game_count, 7);
     }
 }

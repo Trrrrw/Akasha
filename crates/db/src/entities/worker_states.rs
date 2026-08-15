@@ -17,7 +17,6 @@ pub struct Model {
     pub game_id: String,
     pub phase: WorkerPhase,
     pub status: WorkerStatus,
-    #[sea_orm(column_type = "JsonBinary")]
     pub checkpoint: Json,
     pub run_id: Option<String>,
     pub lease_until: Option<DateTimeWithTimeZone>,

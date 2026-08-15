@@ -20,7 +20,6 @@ pub struct Model {
     pub birthday_day: Option<i16>,
     pub cv: Option<String>,
 
-    #[sea_orm(column_type = "JsonBinary")]
     pub extra: Json,
 
     #[sea_orm(belongs_to, from = "game_id", to = "id")]

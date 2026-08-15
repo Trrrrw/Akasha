@@ -1,7 +1,7 @@
 use akasha_application::auth::{AuthUser, GithubUserProfile, RefreshTokenMetadata};
 use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter,
     TransactionError, TransactionTrait,
 };
 use uuid::Uuid;
@@ -136,7 +136,6 @@ pub async fn rotate_refresh_token(
                 let now = Utc::now().fixed_offset();
                 let old_token = user_refresh_tokens::Entity::find()
                     .filter(user_refresh_tokens::Column::TokenHash.eq(old_refresh_token_hash))
-                    .lock_exclusive()
                     .one(txn)
                     .await?
                     .ok_or_else(|| DbErr::Custom("refresh token not found".to_string()))?;
@@ -160,6 +159,23 @@ pub async fn rotate_refresh_token(
                     .await?
                     .is_some();
                 let new_token_id = Uuid::new_v4();
+
+                // SQLite 不支持行级排他锁，使用带未吊销条件的更新保证轮换只成功一次
+                let update = user_refresh_tokens::Entity::update_many()
+                    .set(user_refresh_tokens::ActiveModel {
+                        revoked_at: Set(Some(now)),
+                        last_used_at: Set(Some(now)),
+                        replaced_by_token_id: Set(Some(new_token_id)),
+                        ..Default::default()
+                    })
+                    .filter(user_refresh_tokens::Column::Id.eq(old_token.id))
+                    .filter(user_refresh_tokens::Column::RevokedAt.is_null())
+                    .exec(txn)
+                    .await?;
+                if update.rows_affected != 1 {
+                    return Err(DbErr::Custom("refresh token already rotated".to_string()));
+                }
+
                 user_refresh_tokens::ActiveModel {
                     id: Set(new_token_id),
                     user_id: Set(user.id),
@@ -174,12 +190,6 @@ pub async fn rotate_refresh_token(
                 }
                 .insert(txn)
                 .await?;
-
-                let mut old_token_active: user_refresh_tokens::ActiveModel = old_token.into();
-                old_token_active.revoked_at = Set(Some(now));
-                old_token_active.last_used_at = Set(Some(now));
-                old_token_active.replaced_by_token_id = Set(Some(new_token_id));
-                old_token_active.update(txn).await?;
 
                 Ok(AuthUser {
                     id: user.id,

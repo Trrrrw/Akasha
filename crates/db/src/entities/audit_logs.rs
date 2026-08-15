@@ -16,7 +16,6 @@ pub struct Model {
     pub request_id: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
-    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
     pub created_at: DateTimeWithTimeZone,
 }

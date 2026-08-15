@@ -4,6 +4,7 @@ target/
 .codex/
 dist/
 /justfile
+data/
 
 config/*.toml
 !config/*.toml.example

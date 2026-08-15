@@ -5,12 +5,15 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+postgres-import = ["sea-orm/sqlx-postgres"]
+
 [dependencies]
 akasha-application = { path = "../application" }
 chrono = { workspace = true }
 sea-orm = { version = "2.0.0-rc", default-features = false, features = [
-    "sqlx-postgres",
-    "runtime-tokio-rustls",
+    "sqlx-sqlite",
+    "runtime-tokio",
     "schema-sync",
     "entity-registry",
     "macros",
@@ -20,4 +23,10 @@ sea-orm = { version = "2.0.0-rc", default-features = false, features = [
 ] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 uuid = { workspace = true }
+
+[[bin]]
+name = "import-postgres"
+path = "src/bin/import-postgres.rs"
+required-features = ["postgres-import"]

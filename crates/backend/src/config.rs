@@ -107,11 +107,7 @@ struct FileServerConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct FileDatabaseConfig {
-    host: Option<String>,
-    port: Option<String>,
-    user: Option<String>,
-    password: Option<String>,
-    name: Option<String>,
+    path: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -207,14 +203,11 @@ impl Config {
             mys_cookie: optional_value("MIYOUSHE_COOKIE", file.mys.cookie.as_deref()),
 
             database: DbOptions {
-                pg_host: string_value("POSTGRES_HOST", file.database.host.as_deref(), "127.0.0.1"),
-                pg_port: string_value("POSTGRES_PORT", file.database.port.as_deref(), "5432"),
-                pg_user: required_value("POSTGRES_USER", file.database.user.as_deref())?,
-                pg_password: required_value(
-                    "POSTGRES_PASSWORD",
-                    file.database.password.as_deref(),
-                )?,
-                pg_database: string_value("POSTGRES_DB", file.database.name.as_deref(), "Akasha"),
+                sqlite_path: string_value(
+                    "SQLITE_PATH",
+                    file.database.path.as_deref(),
+                    "data/akasha.sqlite",
+                ),
             },
 
             auth: AuthConfig {
@@ -403,7 +396,7 @@ mod tests {
                 .expect("backend.toml.example must be valid TOML");
 
         assert_eq!(config.server.bind_addr.as_deref(), Some("0.0.0.0:7040"));
-        assert_eq!(config.database.name.as_deref(), Some("Akasha"));
+        assert_eq!(config.database.path.as_deref(), Some("data/akasha.sqlite"));
         assert_eq!(config.audit.retention_days, Some(180));
     }
 }

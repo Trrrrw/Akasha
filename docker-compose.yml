@@ -1,42 +1,14 @@
 services:
-  akasha-db:
-    container_name: akasha-db
-    image: postgres:18.4-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - ./.temp/postgresql:/var/lib/postgresql
-    healthcheck:
-      interval: 30s
-      retries: 5
-      start_period: 20s
-      test:
-        - CMD
-        - pg_isready
-        - -h
-        - 127.0.0.1
-        - -p
-        - "5432"
-        - -q
-        - -U
-        - ${POSTGRES_USER}
-      timeout: 5s
-
   akasha-backend:
     container_name: akasha-backend
     image: ghcr.io/trrrrw/akasha-backend:latest
     # image: crpi-73ao84573omk8qlo.cn-hangzhou.personal.cr.aliyuncs.com/akasha/akasha-backend:latest
     restart: unless-stopped
-    depends_on:
-      akasha-db:
-        condition: service_healthy
     ports:
       - "7040:7040"
     volumes:
       - ./config:/app/config:ro
+      - ./.temp/sqlite:/app/data
     healthcheck:
       test:
         [

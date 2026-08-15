@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use akasha_application::news::{
     ListNewsFilter, ListNewsRawFilter, NewsRawItem, NewsSource, NewsSummary, RecentNews,
 };
+use chrono::Utc;
 use sea_orm::{
     ActiveEnum, ColumnTrait, Condition, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
     QueryOrder, QuerySelect, QueryTrait, RelationTrait,
@@ -37,10 +38,12 @@ pub async fn list(db: &Db, filter: ListNewsFilter) -> Result<(u64, Vec<NewsSumma
         .filter(news::Column::SourceId.eq(&filter.source_id));
 
     if let Some(start) = filter.start_publish_time {
+        let start = start.with_timezone(&Utc).fixed_offset();
         query = query.filter(news::Column::PublishTime.gte(start));
     }
 
     if let Some(end) = filter.end_publish_time {
+        let end = end.with_timezone(&Utc).fixed_offset();
         query = query.filter(news::Column::PublishTime.lt(end));
     }
 
@@ -366,30 +369,48 @@ pub async fn recent_by_game(db: &Db, game_id: &str) -> Result<RecentNews, DbErro
     })
 }
 
-/// 使用 PostgreSQL DISTINCT ON 一次查找每个标签的指定类型最新新闻
+/// 按标签逐项查找指定类型最新新闻，避免依赖数据库专用去重语法
 async fn latest_by_tags_and_type(
     db: &Db,
     game_id: &str,
     source_id: &str,
     news_type: news::NewsType,
 ) -> Result<Vec<(String, news::Model)>, DbError> {
-    let rows = news_tags_link::Entity::find()
-        .find_also_related(news::Entity)
+    let tag_names = news_tags_link::Entity::find()
+        .select_only()
+        .column(news_tags_link::Column::Name)
+        .join(JoinType::InnerJoin, news_tags_link::Relation::News.def())
         .filter(news_tags_link::Column::GameId.eq(game_id))
         .filter(news_tags_link::Column::SourceId.eq(source_id))
-        .filter(news::Column::NewsType.eq(news_type))
-        .distinct_on([(news_tags_link::Entity, news_tags_link::Column::Name)])
+        .filter(news::Column::NewsType.eq(news_type.clone()))
+        .distinct()
         .order_by_asc(news_tags_link::Column::Name)
-        .order_by_desc(news::Column::PublishTime)
-        .order_by_desc(news::Column::Id)
+        .into_tuple::<String>()
         .all(db.conn())
         .await
         .map_err(DbError::Query)?;
 
-    Ok(rows
-        .into_iter()
-        .filter_map(|(link, news)| news.map(|news| (link.name, news)))
-        .collect())
+    let mut rows = Vec::with_capacity(tag_names.len());
+    for tag_name in tag_names {
+        let row = news_tags_link::Entity::find()
+            .find_also_related(news::Entity)
+            .filter(news_tags_link::Column::GameId.eq(game_id))
+            .filter(news_tags_link::Column::SourceId.eq(source_id))
+            .filter(news_tags_link::Column::Name.eq(&tag_name))
+            .filter(news::Column::NewsType.eq(news_type.clone()))
+            .order_by_desc(news::Column::PublishTime)
+            .order_by_desc(news::Column::Id)
+            .limit(1)
+            .one(db.conn())
+            .await
+            .map_err(DbError::Query)?;
+
+        if let Some((_, Some(news))) = row {
+            rows.push((tag_name, news));
+        }
+    }
+
+    Ok(rows)
 }
 
 /// 查找指定类型最新的未分类新闻

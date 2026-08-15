@@ -1,6 +1,7 @@
 use akasha_application::news::{
     NewsSummary, ReplaceNewsTagsCommand, UpdateNewsCommand, UpdateNewsResult,
 };
+use chrono::Utc;
 use sea_orm::{
     ActiveEnum, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter,
     QuerySelect, TransactionError, TransactionTrait,
@@ -18,6 +19,10 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
     db.conn()
         .transaction::<_, UpdateNewsResult, DbErr>(|txn| {
             Box::pin(async move {
+                // SQLite 按文本保存带时区时间，统一写入 UTC 以保持排序稳定
+                let mut command = command;
+                command.publish_time = command.publish_time.with_timezone(&Utc).fixed_offset();
+
                 // 先解析新闻类型，并根据是否已有记录执行更新或插入
                 let news_type = news::NewsType::try_from_value(&command.news_type)?;
                 let existing = news::Entity::find_by_id((

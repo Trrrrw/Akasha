@@ -2,9 +2,6 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
-# 本机进程通过已映射端口连接开发数据库
-$env:POSTGRES_HOST = "127.0.0.1"
-
 # 启动一个开发进程并保留其输出在当前终端
 function Start-DevelopmentProcess {
     param(

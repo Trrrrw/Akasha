@@ -1,12 +1,12 @@
 # Akasha
 
-Akasha 是一个使用 Rust 和 PostgreSQL 实现的游戏信息聚合后端。数据通过受保护的管理接口写入，公开仓库不包含具体数据采集实现
+Akasha 是一个使用 Rust 和 SQLite 实现的游戏信息聚合后端。数据通过受保护的管理接口写入，公开仓库不包含具体数据采集实现
 
 ## 项目结构
 
 - `crates/backend`：Axum HTTP 交付层、认证、OpenAPI 文档及应用装配
 - `crates/application`：与 HTTP、SeaORM 无关的应用服务、数据模型和 repository 端口
-- `crates/db`：SeaORM Entity、PostgreSQL repository 和 schema 同步
+- `crates/db`：SeaORM Entity、SQLite repository 和 schema 同步
 - `crates/mys`：米游社视频临时签名客户端
 
 ## 环境配置
@@ -17,16 +17,16 @@ Akasha 是一个使用 Rust 和 PostgreSQL 实现的游戏信息聚合后端。�
 cp config/backend.toml.example config/backend.toml
 ```
 
-`config/backend.toml` 已被 Git 忽略，不会提交数据库密码和认证密钥。Docker Compose 会将整个 `config/` 目录只读挂载到容器的 `/app/config`。后端默认读取 `config/backend.toml`，只有需要使用其他位置时才通过 `AKASHA_CONFIG_FILE` 覆盖默认路径
+`config/backend.toml` 已被 Git 忽略，不会提交实际配置和认证密钥。Docker Compose 会将整个 `config/` 目录只读挂载到容器的 `/app/config`。后端默认读取 `config/backend.toml`，只有需要使用其他位置时才通过 `AKASHA_CONFIG_FILE` 覆盖默认路径
 
-环境变量仍可临时覆盖后端配置文件，但 `.env.example` 只保留 PostgreSQL 容器初始化所需的变量，不再重复列出后端配置。配置文件中的字段按功能分组，名称与下表的环境变量一一对应
+环境变量仍可临时覆盖后端配置文件。配置文件中的字段按功能分组，名称与下表的环境变量一一对应
 
 | 配置文件字段 | 对应环境变量 | 说明 |
 | --- | --- | --- |
 | `[server].log_level` | `LOG_LEVEL` | 日志级别过滤器 |
 | `[server].bind_addr` | `BIND_ADDR` | HTTP 监听地址 |
 | `[server].asset_base_url` | `ASSET_BASE_URL` | 对外公开的后端根地址 |
-| `[database]` | `POSTGRES_*` | PostgreSQL 连接配置 |
+| `[database].path` | `SQLITE_PATH` | SQLite 数据库文件路径 |
 | `[auth]` | `JWT_SECRET`、`TOKEN_HASH_SECRET` | 应用 token 密钥 |
 | `[github]` | `GITHUB_*`、`ADMIN_GITHUB_ID` | GitHub OAuth 配置 |
 | `[worker].token` | `WORKER_TOKEN` | 内部 worker 凭据 |
@@ -41,11 +41,7 @@ cp config/backend.toml.example config/backend.toml
 | `LOG_LEVEL` | `info` | 日志级别过滤器 |
 | `BIND_ADDR` | `0.0.0.0:7040` | HTTP 监听地址 |
 | `ASSET_BASE_URL` | 无 | 对外可访问的后端根地址，例如 `https://example.com` |
-| `POSTGRES_HOST` | `127.0.0.1` | PostgreSQL 地址 |
-| `POSTGRES_PORT` | `5432` | PostgreSQL 端口 |
-| `POSTGRES_USER` | 无 | PostgreSQL 用户名 |
-| `POSTGRES_PASSWORD` | 无 | PostgreSQL 密码 |
-| `POSTGRES_DB` | `Akasha` | PostgreSQL 数据库名 |
+| `SQLITE_PATH` | `data/akasha.sqlite` | SQLite 数据库文件路径，相对路径以进程工作目录为基准 |
 | `JWT_SECRET` | 无 | access token 签名密钥，至少 32 字节 |
 | `TOKEN_HASH_SECRET` | 无 | 敏感 token 哈希密钥，至少 32 字节 |
 | `GITHUB_CLIENT_ID` | 无 | GitHub OAuth 客户端 ID |
@@ -97,18 +93,31 @@ cargo test --workspace
 - 健康检查：`http://localhost:7040/healthz`
 - Scalar API 文档：`http://localhost:7040/scalar`
 
+## 从 PostgreSQL 备份导入 SQLite
+
+Windows 下执行 `just restore-db` 会自动选择默认下载目录中最新的 `Akasha_*.sql.gz` 备份，并通过临时 PostgreSQL 容器转换后导入 `data/akasha.sqlite`
+
+也可以显式指定备份文件：
+
+```powershell
+just restore-db "D:\Downloads\Akasha_backup.sql.gz"
+```
+
+导入前需要安装 Docker、7-Zip 和 Rust 工具链。目标 SQLite 已存在时脚本会要求确认，并在替换前保留旧文件
+
 ## Docker 运行
 
-先创建 PostgreSQL 使用的 `.env`，以及后端使用的实际配置文件，并填写部署参数：
+先创建后端使用的实际配置文件，并填写部署参数：
 
 ```bash
-cp .env.example .env
 cp config/backend.toml.example config/backend.toml
 ```
 
-Compose 从 `.env` 读取 PostgreSQL 容器初始化参数，后端配置不再通过 Compose 环境变量传入。`backend.toml` 会通过只读卷挂载到后端容器，修改配置后重建或重启后端容器即可生效
+SQLite 文件会保存到宿主机的 `.temp/sqlite`，后端配置通过只读卷挂载到容器。修改配置后重建或重启后端容器即可生效
 
-拉取公开镜像并启动 PostgreSQL 与后端：
+该部署方式假定同一个 SQLite 文件只由一个后端实例使用，worker 通过后端 API 写入数据。备份时应先停止后端，再备份整个 `.temp/sqlite` 目录
+
+拉取公开镜像并启动后端：
 
 ```bash
 docker compose up -d

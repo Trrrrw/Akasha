@@ -3,6 +3,9 @@ use thiserror::Error;
 /// 数据库连接、schema 同步和持久化操作可能返回的错误
 #[derive(Error, Debug)]
 pub enum DbError {
+    #[error("数据库目录创建失败: {0}")]
+    PrepareDirectory(#[source] std::io::Error),
+
     #[error("数据库连接失败: {0}")]
     Connect(#[source] sea_orm::DbErr),
 
@@ -20,4 +23,7 @@ pub enum DbError {
 
     #[error("数据库查询失败: {0}")]
     Query(#[source] sea_orm::DbErr),
+
+    #[error("数据库导入失败: {0}")]
+    Import(#[source] sea_orm::DbErr),
 }

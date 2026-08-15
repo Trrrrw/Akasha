@@ -14,7 +14,7 @@ pub struct Model {
     pub key_prefix: String,
     #[sea_orm(unique)]
     pub key_hash: String,
-    pub scopes: Vec<String>,
+    pub scopes: Json,
     pub expires_at: Option<DateTimeWithTimeZone>,
     pub last_used_at: Option<DateTimeWithTimeZone>,
     pub revoked_at: Option<DateTimeWithTimeZone>,

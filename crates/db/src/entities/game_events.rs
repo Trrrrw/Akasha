@@ -16,7 +16,7 @@ pub struct Model {
     pub main_text: Option<String>,
     pub start: Option<DateTimeWithTimeZone>,
     pub end: Option<DateTimeWithTimeZone>,
-    pub tags: Option<Vec<String>>,
+    pub tags: Option<Json>,
     pub url: Option<String>,
 
     #[sea_orm(belongs_to, from = "game_id", to = "id")]
