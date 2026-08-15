@@ -101,9 +101,9 @@ cargo test --workspace
 cp config/backend.toml.example config/backend.toml
 ```
 
-SQLite 文件会保存到宿主机的 `.temp/sqlite`，后端配置通过只读卷挂载到容器。修改配置后重建或重启后端容器即可生效
+SQLite 文件会保存到宿主机的 `data` 目录，后端配置通过只读配置卷和可写数据卷挂载到容器。修改配置后重建或重启后端容器即可生效
 
-该部署方式假定同一个 SQLite 文件只由一个后端实例使用，worker 通过后端 API 写入数据。备份时应先停止后端，再备份整个 `.temp/sqlite` 目录
+该部署方式假定同一个 SQLite 文件只由一个后端实例使用，worker 通过后端 API 写入数据。备份时应先停止后端，再备份整个 `data` 目录
 
 拉取公开镜像并启动后端：
 
