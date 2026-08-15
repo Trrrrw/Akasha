@@ -5,9 +5,6 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[features]
-postgres-import = ["sea-orm/sqlx-postgres"]
-
 [dependencies]
 akasha-application = { path = "../application" }
 chrono = { workspace = true }
@@ -25,8 +22,3 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
-
-[[bin]]
-name = "import-postgres"
-path = "src/bin/import-postgres.rs"
-required-features = ["postgres-import"]

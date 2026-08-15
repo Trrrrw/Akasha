@@ -93,18 +93,6 @@ cargo test --workspace
 - 健康检查：`http://localhost:7040/healthz`
 - Scalar API 文档：`http://localhost:7040/scalar`
 
-## 从 PostgreSQL 备份导入 SQLite
-
-Windows 下执行 `just restore-db` 会自动选择默认下载目录中最新的 `Akasha_*.sql.gz` 备份，并通过临时 PostgreSQL 容器转换后导入 `data/akasha.sqlite`
-
-也可以显式指定备份文件：
-
-```powershell
-just restore-db "D:\Downloads\Akasha_backup.sql.gz"
-```
-
-导入前需要安装 Docker、7-Zip 和 Rust 工具链。目标 SQLite 已存在时脚本会要求确认，并在替换前保留旧文件
-
 ## Docker 运行
 
 先创建后端使用的实际配置文件，并填写部署参数：
