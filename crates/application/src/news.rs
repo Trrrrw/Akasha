@@ -1,7 +1,10 @@
 use chrono::{DateTime, FixedOffset};
 use serde_json::Value;
 
-use crate::{ApplicationError, ApplicationRepository, ApplicationServices, audit::AuditContext};
+use crate::{
+    ApplicationError, ApplicationRepository, ApplicationServices, audit::AuditContext,
+    search::TextQuery,
+};
 
 /// 视频详情默认返回的相关视频数量
 const RELATED_VIDEO_LIMIT: u64 = 8;
@@ -29,19 +32,41 @@ pub struct NewsSource {
     pub index: i64,
 }
 
-/// 用于筛选和分页一个游戏及来源下的新闻
+/// 一个游戏及来源下可复用于列表和 RSS 的新闻筛选条件
 #[derive(Debug, Clone)]
-pub struct ListNewsFilter {
+pub struct NewsFilter {
     pub source_id: String,
     pub game_id: String,
-    pub query: Option<String>,
-    pub tags: Option<Vec<String>>,
+    pub title_query: Option<TextQuery>,
+    pub tags: Vec<String>,
+    pub include_untagged: bool,
+    pub character_ids: Vec<String>,
     pub news_type: Option<String>,
     pub start_publish_time: Option<DateTime<FixedOffset>>,
     pub end_publish_time: Option<DateTime<FixedOffset>>,
+}
+
+/// 新闻列表支持的发布时间排序方向
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NewsOrder {
+    Asc,
+    Desc,
+}
+
+/// 用于读取一页新闻及匹配总数的查询
+#[derive(Debug, Clone)]
+pub struct ListNewsFilter {
+    pub filter: NewsFilter,
     pub limit: u64,
     pub offset: u64,
-    pub reverse: bool,
+    pub order: NewsOrder,
+}
+
+/// 用于读取 RSS 条目的固定倒序新闻查询
+#[derive(Debug, Clone)]
+pub struct NewsFeedFilter {
+    pub filter: NewsFilter,
+    pub limit: u64,
 }
 
 /// 不依赖持久化实现的新闻读取模型
@@ -68,7 +93,6 @@ pub struct NewsSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewsCharacter {
     pub id: String,
-    pub item_id: String,
     pub name: String,
 }
 
@@ -76,7 +100,6 @@ pub struct NewsCharacter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewsCharacterInput {
     pub id: String,
-    pub item_id: String,
     pub name: String,
 }
 
@@ -84,7 +107,6 @@ impl From<NewsCharacterInput> for NewsCharacter {
     fn from(value: NewsCharacterInput) -> Self {
         Self {
             id: value.id,
-            item_id: value.item_id,
             name: value.name,
         }
     }
@@ -121,6 +143,8 @@ pub struct ListNewsRawFilter {
 #[derive(Debug, Clone)]
 pub struct NewsTag {
     pub name: String,
+    /// 是否表示没有关联任何标签的新闻统计
+    pub untagged: bool,
     pub index: i64,
     pub group: Option<String>,
     pub group_index: Option<i64>,
@@ -132,6 +156,13 @@ pub struct NewsTag {
 #[derive(Debug, Clone)]
 pub struct NewsListResult {
     pub total: u64,
+    pub items: Vec<NewsSummary>,
+    pub game_cover: Option<String>,
+}
+
+/// 包含游戏兜底封面的 RSS 新闻集合
+#[derive(Debug, Clone)]
+pub struct NewsFeedResult {
     pub items: Vec<NewsSummary>,
     pub game_cover: Option<String>,
 }
@@ -310,7 +341,7 @@ where
         &self,
         filter: ListNewsFilter,
     ) -> Result<NewsListResult, ApplicationError> {
-        let game_id = filter.game_id.clone();
+        let game_id = filter.filter.game_id.clone();
         let (total, items) = self.repository.list_news(filter).await?;
         let game_cover = self.repository.find_game_cover(&game_id).await?;
 
@@ -319,6 +350,18 @@ where
             items,
             game_cover,
         })
+    }
+
+    /// 按与新闻列表相同的筛选规则读取固定倒序 RSS 条目
+    pub async fn list_news_feed(
+        &self,
+        filter: NewsFeedFilter,
+    ) -> Result<NewsFeedResult, ApplicationError> {
+        let game_id = filter.filter.game_id.clone();
+        let items = self.repository.list_news_feed(filter).await?;
+        let game_cover = self.repository.find_game_cover(&game_id).await?;
+
+        Ok(NewsFeedResult { items, game_cover })
     }
 
     /// 读取维护任务需要的原始新闻分页

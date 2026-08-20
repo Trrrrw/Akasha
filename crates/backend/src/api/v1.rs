@@ -7,7 +7,7 @@ use utoipa_axum::router::OpenApiRouter;
 
 use crate::{
     api::{auth, docs::OPENAPI_TITLE},
-    features::{calendar, characters, events, games, news},
+    features::{calendar, events, game_data, games, news},
     state::AppState,
 };
 
@@ -19,8 +19,8 @@ pub(crate) fn router() -> (Router<AppState>, OpenApi) {
             OpenApiRouter::new()
                 .merge(auth::router())
                 .merge(games::public_router())
+                .merge(game_data::public_router())
                 .merge(news::public_router())
-                .merge(characters::public_router())
                 .merge(events::public_router())
                 .merge(calendar::public_router()),
         )
@@ -112,7 +112,13 @@ mod tests {
         assert!(paths.contains_key("/api/v1/auth/refresh"));
         assert!(paths.contains_key("/api/v1/auth/logout"));
         assert!(paths.contains_key("/api/v1/auth/me"));
-        assert!(paths.contains_key("/api/v1/games/{game_id}/characters"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/data/{collection}"));
+        assert!(!paths.keys().any(|path| path.ends_with("/data/character")));
+        assert!(!paths.contains_key("/api/v1/games/ys/characters"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/character-birthdays"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/character-birthdays.ics"));
+        assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar"));
+        assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar/ics"));
         assert!(!paths.contains_key("/api/v1/games/{game_id}/chars"));
         assert!(!paths.keys().any(|path| path.contains("/admin/")));
 
@@ -137,6 +143,38 @@ mod tests {
             .expect("应包含响应模型");
         assert!(schemas.contains_key("GameResponse"));
         assert!(!schemas.contains_key("GameDetailResponse"));
+        assert!(
+            schemas["NewsItemResponse"]["properties"]
+                .get("source")
+                .is_some()
+        );
+        assert!(
+            schemas["NewsItemResponse"]["properties"]
+                .get("source_id")
+                .is_none()
+        );
+
+        for path in [
+            "/api/v1/games/{game_id}/news",
+            "/api/v1/games/{game_id}/news/rss",
+        ] {
+            let parameters = document["paths"][path]["get"]["parameters"]
+                .as_array()
+                .expect("新闻查询应记录公共筛选参数");
+            let names = parameters
+                .iter()
+                .filter_map(|parameter| parameter["name"].as_str())
+                .collect::<Vec<_>>();
+            for name in ["source", "q", "tag", "character"] {
+                assert!(names.contains(&name), "GET {path} 缺少 {name} 参数");
+            }
+            for legacy_name in ["source_id", "tags", "during", "reverse"] {
+                assert!(
+                    !names.contains(&legacy_name),
+                    "GET {path} 不应继续公开 {legacy_name} 参数"
+                );
+            }
+        }
 
         for path in [
             "/api/v1/games/{game_id}/news/{news_id}/video",

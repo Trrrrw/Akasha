@@ -9,6 +9,6 @@ pub(crate) fn public_router() -> OpenApiRouter<AppState> {
     use utoipa_axum::routes;
 
     OpenApiRouter::new()
-        .routes(routes!(endpoints::list))
-        .routes(routes!(endpoints::ics))
+        .routes(routes!(endpoints::character_birthdays_json))
+        .routes(routes!(endpoints::character_birthdays_ics))
 }

@@ -1,35 +1,59 @@
-use sea_orm::entity::prelude::*;
+use akasha_application::search::{TextQuery, TextQueryGroup};
+use sea_orm::{
+    Condition, ExprTrait,
+    entity::prelude::*,
+    sea_query::{Expr, Func, LikeExpr},
+};
 
-/// 已拆分为包含词和排除词的标题搜索条件
-#[derive(Debug, Default)]
-pub struct TitleQuery {
-    pub includes: Vec<String>,
-    pub excludes: Vec<String>,
-}
+/// 为一个已解析文本查询构造跨字段、字面量且 ASCII 大小写不敏感的条件
+pub(crate) fn text_query_condition(query: &TextQuery, fields: &[Expr]) -> Condition {
+    let mut conditions = Condition::all();
 
-impl TitleQuery {
-    /// 将空格分隔、支持减号排除的标题查询拆分为包含和排除词
-    pub fn new(q: &str) -> TitleQuery {
-        let mut parsed = TitleQuery::default();
-
-        for token in q.split_whitespace() {
-            let token = token.trim();
-            if token.is_empty() {
-                continue;
-            }
-
-            if let Some(excluded) = token.strip_prefix('-') {
-                let excluded = excluded.trim();
-                if !excluded.is_empty() {
-                    parsed.excludes.push(excluded.to_owned());
-                }
-            } else {
-                parsed.includes.push(token.to_owned());
+    for group in &query.groups {
+        let mut group_condition = Condition::any();
+        for alternative in &group.alternatives {
+            let pattern = escaped_contains_pattern(&alternative.to_lowercase());
+            for field in fields {
+                group_condition = group_condition.add(
+                    Func::lower(Func::if_null(field.clone(), ""))
+                        .like(LikeExpr::new(pattern.clone()).escape('\\')),
+                );
             }
         }
-
-        parsed
+        if group.excluded {
+            group_condition = group_condition.not();
+        }
+        conditions = conditions.add(group_condition);
     }
+
+    conditions
+}
+
+/// 为一个字面量关键词构造跨字段包含条件
+pub(crate) fn literal_contains_condition(value: String, fields: &[Expr]) -> Condition {
+    text_query_condition(
+        &TextQuery {
+            groups: vec![TextQueryGroup {
+                excluded: false,
+                alternatives: vec![value],
+            }],
+        },
+        fields,
+    )
+}
+
+/// 将用户文本转换为不会暴露 LIKE 通配符语义的包含模式
+fn escaped_contains_pattern(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('%');
+    for ch in value.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped.push('%');
+    escaped
 }
 
 /// 数据库中保存的用户组
@@ -109,28 +133,6 @@ impl WorkerStatus {
             Self::Idle => "idle",
             Self::Running => "running",
             Self::Failed => "failed",
-        }
-    }
-}
-
-/// SeaORM 中保存的角色性别
-#[derive(Debug, Clone, PartialEq, Eq, DeriveActiveEnum, EnumIter)]
-#[sea_orm(
-    rs_type = "String",
-    db_type = "String(StringLen::None)",
-    rename_all = "lowercase"
-)]
-pub enum Gender {
-    Male,
-    Female,
-}
-
-impl Gender {
-    /// 返回角色性别稳定的数据库字符串值
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Gender::Male => "male",
-            Gender::Female => "female",
         }
     }
 }

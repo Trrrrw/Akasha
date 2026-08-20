@@ -1,7 +1,7 @@
 use axum::Router;
 
 use crate::{
-    features::{characters, news, workers},
+    features::{game_data, news, workers},
     state::AppState,
 };
 
@@ -12,6 +12,6 @@ pub(crate) fn router() -> Router<AppState> {
         Router::new()
             .merge(workers::admin_router())
             .merge(news::admin_router())
-            .merge(characters::admin_router()),
+            .merge(game_data::admin_router()),
     )
 }

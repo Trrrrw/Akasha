@@ -6,27 +6,28 @@ use akasha_application::news::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveEnum, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter,
-    QuerySelect, TransactionError, TransactionTrait,
+    ActiveEnum, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseTransaction, DbErr,
+    EntityTrait, QueryFilter, QuerySelect, TransactionError, TransactionTrait,
 };
 use serde_json::json;
 
 use crate::{
     Db, DbError,
-    entities::{news, news_characters_link, news_tags_link},
+    entities::{
+        news, news_tags_link, sr_news_characters_link, ys_news_characters_link,
+        zzz_news_characters_link,
+    },
     repositories::audit,
 };
 
-/// 创建或更新新闻，同时替换其标签和原始来源数据
+/// 创建或更新新闻，同时替换其标签、角色关联和原始来源数据
 pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNewsResult, DbError> {
     db.conn()
         .transaction::<_, UpdateNewsResult, DbErr>(|txn| {
             Box::pin(async move {
-                // SQLite 按文本保存带时区时间，统一写入 UTC 以保持排序稳定
                 let mut command = command;
                 command.publish_time = command.publish_time.with_timezone(&Utc).fixed_offset();
 
-                // 先解析新闻类型，并根据是否已有记录执行更新或插入
                 let news_type = news::NewsType::try_from_value(&command.news_type)?;
                 let existing = news::Entity::find_by_id((
                     command.game_id.clone(),
@@ -51,15 +52,7 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                     Vec::new()
                 };
                 let existing_characters = if command.characters.is_some() && existing.is_some() {
-                    news_characters_link::Entity::find()
-                        .select_only()
-                        .column(news_characters_link::Column::CharacterId)
-                        .column(news_characters_link::Column::CharacterItemId)
-                        .filter(news_characters_link::Column::GameId.eq(&command.game_id))
-                        .filter(news_characters_link::Column::SourceId.eq(&command.source_id))
-                        .filter(news_characters_link::Column::NewsId.eq(&command.id))
-                        .into_tuple::<(String, String)>()
-                        .all(txn)
+                    list_news_character_ids(txn, &command.game_id, &command.source_id, &command.id)
                         .await?
                 } else {
                     Vec::new()
@@ -105,14 +98,12 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                     .await?;
                 }
 
-                // 删除旧标签关联后写入请求提供的完整标签集合
                 news_tags_link::Entity::delete_many()
                     .filter(news_tags_link::Column::GameId.eq(&command.game_id))
                     .filter(news_tags_link::Column::SourceId.eq(&command.source_id))
                     .filter(news_tags_link::Column::NewsId.eq(&command.id))
                     .exec(txn)
                     .await?;
-
                 for tag in &command.tags {
                     news_tags_link::ActiveModel {
                         game_id: Set(command.game_id.clone()),
@@ -124,26 +115,15 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                     .await?;
                 }
 
-                // 角色字段由 worker 根据当前角色目录生成，写入新闻时与正文保持同一事务
                 if let Some(characters) = command.characters.as_ref() {
-                    news_characters_link::Entity::delete_many()
-                        .filter(news_characters_link::Column::GameId.eq(&command.game_id))
-                        .filter(news_characters_link::Column::SourceId.eq(&command.source_id))
-                        .filter(news_characters_link::Column::NewsId.eq(&command.id))
-                        .exec(txn)
-                        .await?;
-
-                    for character in characters {
-                        news_characters_link::ActiveModel {
-                            game_id: Set(command.game_id.clone()),
-                            source_id: Set(command.source_id.clone()),
-                            news_id: Set(command.id.clone()),
-                            character_id: Set(character.id.clone()),
-                            character_item_id: Set(character.item_id.clone()),
-                        }
-                        .insert(txn)
-                        .await?;
-                    }
+                    replace_news_character_links(
+                        txn,
+                        &command.game_id,
+                        &command.source_id,
+                        &command.id,
+                        characters,
+                    )
+                    .await?;
                 }
 
                 if created || !changed_fields.is_empty() {
@@ -164,7 +144,6 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                     .await?;
                 }
 
-                // 使用命令数据构造应用层结果，避免再次读取刚写入的记录
                 Ok(UpdateNewsResult {
                     created,
                     item: NewsSummary {
@@ -190,11 +169,7 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
             })
         })
         .await
-        .map_err(|error| match error {
-            TransactionError::Connection(error) | TransactionError::Transaction(error) => {
-                DbError::Query(error)
-            }
-        })
+        .map_err(transaction_error)
 }
 
 /// 计算一条已有新闻实际发生变化的字段
@@ -202,7 +177,7 @@ fn changed_news_fields(
     row: &news::Model,
     command: &UpdateNewsCommand,
     existing_tags: &[String],
-    existing_characters: &[(String, String)],
+    existing_characters: &[String],
 ) -> Vec<&'static str> {
     let mut fields = Vec::new();
     if row.title != command.title {
@@ -241,7 +216,7 @@ fn changed_news_fields(
         previous_characters.sort();
         let mut next_characters = characters
             .iter()
-            .map(|character| (character.id.clone(), character.item_id.clone()))
+            .map(|character| character.id.clone())
             .collect::<Vec<_>>();
         next_characters.sort();
         if previous_characters != next_characters {
@@ -266,22 +241,22 @@ fn created_news_fields(include_characters: bool) -> Vec<&'static str> {
         "video_url",
         "video_duration_ms",
         "raw_data",
+        "tags",
     ];
-    fields.push("tags");
     if include_characters {
         fields.push("characters");
     }
     fields
 }
 
-/// 校验一次完整写入中的角色主键不重复
+/// 校验一次完整写入中的角色 ID 不重复
 fn validate_character_inputs(characters: &[NewsCharacterInput]) -> Result<(), DbErr> {
-    let mut keys = HashSet::with_capacity(characters.len());
+    let mut ids = HashSet::with_capacity(characters.len());
     for character in characters {
-        if !keys.insert((character.id.clone(), character.item_id.clone())) {
+        if !ids.insert(character.id.clone()) {
             return Err(DbErr::Custom(format!(
-                "duplicated news character key: id={}, item_id={}",
-                character.id, character.item_id
+                "duplicated news character id: {}",
+                character.id
             )));
         }
     }
@@ -294,7 +269,6 @@ pub async fn replace_news_tags(db: &Db, command: ReplaceNewsTagsCommand) -> Resu
         .transaction::<_, (), DbErr>(|txn| {
             Box::pin(async move {
                 let update_count = command.updates.len();
-                // 每条新闻独立替换全部标签，整体仍由同一个事务保证原子性
                 for update in command.updates {
                     news_tags_link::Entity::delete_many()
                         .filter(news_tags_link::Column::GameId.eq(&command.game_id))
@@ -334,14 +308,10 @@ pub async fn replace_news_tags(db: &Db, command: ReplaceNewsTagsCommand) -> Resu
             })
         })
         .await
-        .map_err(|error| match error {
-            TransactionError::Connection(error) | TransactionError::Transaction(error) => {
-                DbError::Query(error)
-            }
-        })
+        .map_err(transaction_error)
 }
 
-/// 替换一个来源下多条新闻的角色关联
+/// 替换一个来源下多条新闻的游戏专属角色关联
 pub async fn replace_news_characters(
     db: &Db,
     command: ReplaceNewsCharactersCommand,
@@ -352,25 +322,14 @@ pub async fn replace_news_characters(
                 let update_count = command.updates.len();
                 for update in command.updates {
                     validate_character_inputs(&update.characters)?;
-
-                    news_characters_link::Entity::delete_many()
-                        .filter(news_characters_link::Column::GameId.eq(&command.game_id))
-                        .filter(news_characters_link::Column::SourceId.eq(&command.source_id))
-                        .filter(news_characters_link::Column::NewsId.eq(&update.id))
-                        .exec(txn)
-                        .await?;
-
-                    for character in update.characters {
-                        news_characters_link::ActiveModel {
-                            game_id: Set(command.game_id.clone()),
-                            source_id: Set(command.source_id.clone()),
-                            news_id: Set(update.id.clone()),
-                            character_id: Set(character.id),
-                            character_item_id: Set(character.item_id),
-                        }
-                        .insert(txn)
-                        .await?;
-                    }
+                    replace_news_character_links(
+                        txn,
+                        &command.game_id,
+                        &command.source_id,
+                        &update.id,
+                        &update.characters,
+                    )
+                    .await?;
                 }
 
                 if update_count > 0 {
@@ -392,9 +351,135 @@ pub async fn replace_news_characters(
             })
         })
         .await
-        .map_err(|error| match error {
-            TransactionError::Connection(error) | TransactionError::Transaction(error) => {
-                DbError::Query(error)
+        .map_err(transaction_error)
+}
+
+/// 读取一条新闻在对应游戏关联表中的角色 ID
+async fn list_news_character_ids(
+    txn: &DatabaseTransaction,
+    game_id: &str,
+    source_id: &str,
+    news_id: &str,
+) -> Result<Vec<String>, DbErr> {
+    match game_id {
+        "ys" => {
+            ys_news_characters_link::Entity::find()
+                .select_only()
+                .column(ys_news_characters_link::Column::CharacterId)
+                .filter(ys_news_characters_link::Column::GameId.eq(game_id))
+                .filter(ys_news_characters_link::Column::SourceId.eq(source_id))
+                .filter(ys_news_characters_link::Column::NewsId.eq(news_id))
+                .into_tuple::<String>()
+                .all(txn)
+                .await
+        }
+        "sr" => {
+            sr_news_characters_link::Entity::find()
+                .select_only()
+                .column(sr_news_characters_link::Column::CharacterId)
+                .filter(sr_news_characters_link::Column::GameId.eq(game_id))
+                .filter(sr_news_characters_link::Column::SourceId.eq(source_id))
+                .filter(sr_news_characters_link::Column::NewsId.eq(news_id))
+                .into_tuple::<String>()
+                .all(txn)
+                .await
+        }
+        "zzz" => {
+            zzz_news_characters_link::Entity::find()
+                .select_only()
+                .column(zzz_news_characters_link::Column::CharacterId)
+                .filter(zzz_news_characters_link::Column::GameId.eq(game_id))
+                .filter(zzz_news_characters_link::Column::SourceId.eq(source_id))
+                .filter(zzz_news_characters_link::Column::NewsId.eq(news_id))
+                .into_tuple::<String>()
+                .all(txn)
+                .await
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
+/// 删除一条新闻的既有关联并写入对应游戏的完整角色集合
+async fn replace_news_character_links(
+    txn: &DatabaseTransaction,
+    game_id: &str,
+    source_id: &str,
+    news_id: &str,
+    characters: &[NewsCharacterInput],
+) -> Result<(), DbErr> {
+    match game_id {
+        "ys" => {
+            ys_news_characters_link::Entity::delete_many()
+                .filter(ys_news_characters_link::Column::GameId.eq(game_id))
+                .filter(ys_news_characters_link::Column::SourceId.eq(source_id))
+                .filter(ys_news_characters_link::Column::NewsId.eq(news_id))
+                .exec(txn)
+                .await?;
+            for character in characters {
+                ys_news_characters_link::ActiveModel {
+                    game_id: Set(game_id.to_owned()),
+                    source_id: Set(source_id.to_owned()),
+                    news_id: Set(news_id.to_owned()),
+                    character_id: Set(character.id.clone()),
+                    character_collection: Set("character".to_owned()),
+                }
+                .insert(txn)
+                .await?;
             }
-        })
+        }
+        "sr" => {
+            sr_news_characters_link::Entity::delete_many()
+                .filter(sr_news_characters_link::Column::GameId.eq(game_id))
+                .filter(sr_news_characters_link::Column::SourceId.eq(source_id))
+                .filter(sr_news_characters_link::Column::NewsId.eq(news_id))
+                .exec(txn)
+                .await?;
+            for character in characters {
+                sr_news_characters_link::ActiveModel {
+                    game_id: Set(game_id.to_owned()),
+                    source_id: Set(source_id.to_owned()),
+                    news_id: Set(news_id.to_owned()),
+                    character_id: Set(character.id.clone()),
+                    character_collection: Set("character".to_owned()),
+                }
+                .insert(txn)
+                .await?;
+            }
+        }
+        "zzz" => {
+            zzz_news_characters_link::Entity::delete_many()
+                .filter(zzz_news_characters_link::Column::GameId.eq(game_id))
+                .filter(zzz_news_characters_link::Column::SourceId.eq(source_id))
+                .filter(zzz_news_characters_link::Column::NewsId.eq(news_id))
+                .exec(txn)
+                .await?;
+            for character in characters {
+                zzz_news_characters_link::ActiveModel {
+                    game_id: Set(game_id.to_owned()),
+                    source_id: Set(source_id.to_owned()),
+                    news_id: Set(news_id.to_owned()),
+                    character_id: Set(character.id.clone()),
+                    character_collection: Set("character".to_owned()),
+                }
+                .insert(txn)
+                .await?;
+            }
+        }
+        _ if characters.is_empty() => {}
+        _ => {
+            return Err(DbErr::Custom(format!(
+                "character links are not supported for game {game_id}"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn transaction_error(error: TransactionError<DbErr>) -> DbError {
+    match error {
+        TransactionError::Connection(error) | TransactionError::Transaction(error) => {
+            DbError::Query(error)
+        }
+    }
 }

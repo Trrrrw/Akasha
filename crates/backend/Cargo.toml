@@ -20,6 +20,7 @@ akasha-db = { path = "../db" }
 akasha-mys = { path = "../mys" }
 anyhow = { workspace = true }
 axum = { workspace = true }
+axum-extra = { workspace = true }
 base64 = "0.22"
 chrono = { workspace = true }
 hex = "0.4"

@@ -1,83 +1,182 @@
-use serde_json::Value;
+use serde::Deserialize;
 
-use crate::audit::AuditContext;
+use crate::{ApplicationError, ApplicationRepository, ApplicationServices, search::TextQuery};
 
-use crate::{ApplicationError, ApplicationRepository, ApplicationServices};
-
-/// 用于筛选和分页一个游戏的角色
+/// 原神角色列表筛选条件
 #[derive(Debug, Clone)]
-pub struct CharacterListFilter {
-    pub game_id: String,
-    pub query: Option<String>,
-    pub gender: Option<String>,
+pub struct YsCharacterListFilter {
+    pub query: Option<TextQuery>,
+    pub element: Option<String>,
+    pub weapon_type: Option<String>,
+    pub rarity: Option<String>,
+    pub region: Option<String>,
+    pub affiliation: Option<String>,
     pub voice_actor: Option<String>,
     pub birthday_month: Option<i16>,
+    pub birthday_day: Option<i16>,
+    pub special: Option<bool>,
+    pub birthday_only: bool,
     pub limit: u64,
     pub offset: u64,
 }
 
-/// 不依赖持久化实现的角色读取模型
+/// 星铁角色列表筛选条件
 #[derive(Debug, Clone)]
-pub struct CharacterSummary {
-    pub id: String,
-    pub item_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub gender: Option<String>,
+pub struct SrCharacterListFilter {
+    pub query: Option<TextQuery>,
+    pub path: Option<String>,
+    pub combat_type: Option<String>,
+    pub rarity: Option<String>,
+    pub camp: Option<String>,
+    pub voice_actor: Option<String>,
     pub birthday_month: Option<i16>,
     pub birthday_day: Option<i16>,
-    pub voice_actor: Option<String>,
+    pub birthday_only: bool,
+    pub limit: u64,
+    pub offset: u64,
 }
 
-/// 替换一个游戏的完整角色目录
+/// 绝区零角色列表筛选条件
 #[derive(Debug, Clone)]
-pub struct SyncCharactersCommand {
-    pub game_id: String,
-    pub items: Vec<SyncCharacterItem>,
-    pub audit: AuditContext,
-}
-
-/// 目录同步时提供的单个角色
-#[derive(Debug, Clone)]
-pub struct SyncCharacterItem {
-    pub id: String,
-    pub item_id: String,
-    pub name: String,
-    pub description: Option<String>,
+pub struct ZzzCharacterListFilter {
+    pub query: Option<TextQuery>,
+    pub specialty_id: Option<i32>,
+    pub specialty: Option<String>,
+    pub element_id: Option<i32>,
+    pub element: Option<String>,
+    pub hit_type_id: Option<i32>,
+    pub hit_type: Option<String>,
+    pub camp_id: Option<i32>,
+    pub camp: Option<String>,
+    pub rarity: Option<i16>,
     pub gender: Option<String>,
+    pub special_element: Option<String>,
     pub birthday_month: Option<i16>,
     pub birthday_day: Option<i16>,
-    pub voice_actor: Option<String>,
-    pub extra: Value,
+    pub birthday_only: bool,
+    pub limit: u64,
+    pub offset: u64,
 }
 
-/// 角色目录同步的执行结果
-#[derive(Debug, Clone, Copy)]
-pub struct SyncCharactersResult {
-    pub created: u64,
-    pub updated: u64,
-    pub deleted: u64,
-    pub changed: bool,
-    pub total: u64,
+/// 原神角色公开读取模型
+#[derive(Debug, Clone, Deserialize)]
+pub struct YsCharacter {
+    pub id: String,
+    pub name: String,
+    pub name_en: String,
+    pub name_ja: String,
+    pub name_ko: String,
+    pub description: String,
+    pub description_en: String,
+    pub icon_url: String,
+    pub release_date: Option<String>,
+    pub birthday_month: Option<i16>,
+    pub birthday_day: Option<i16>,
+    pub rarity: Option<String>,
+    pub weapon_type: Option<String>,
+    pub element: Option<String>,
+    pub constellation: Option<String>,
+    pub region: Option<String>,
+    pub affiliation: Option<String>,
+    pub title: Option<String>,
+    pub cv_zh: Option<String>,
+    pub cv_en: Option<String>,
+    pub cv_ja: Option<String>,
+    pub cv_ko: Option<String>,
+    pub base_hp: Option<f64>,
+    pub base_atk: Option<f64>,
+    pub base_def: Option<f64>,
+    pub crit_rate: Option<f64>,
+    pub crit_dmg: Option<f64>,
+    pub elemental_mastery: Option<f64>,
+    pub stamina_recovery: Option<f64>,
+    pub special: bool,
+}
+
+/// 星铁角色公开读取模型
+#[derive(Debug, Clone, Deserialize)]
+pub struct SrCharacter {
+    pub id: String,
+    pub name: String,
+    pub name_en: String,
+    pub name_ja: String,
+    pub name_ko: String,
+    pub description: String,
+    pub description_en: String,
+    pub icon_url: String,
+    pub release_at: Option<i64>,
+    pub rarity: String,
+    pub path: String,
+    pub combat_type: String,
+    pub camp: Option<String>,
+    pub cv_zh: Option<String>,
+    pub cv_en: Option<String>,
+    pub cv_ja: Option<String>,
+    pub cv_ko: Option<String>,
+    pub birthday_month: Option<i16>,
+    pub birthday_day: Option<i16>,
+    pub avatar_vo_tag: String,
+    pub sp_need: Option<i16>,
+}
+
+/// 绝区零角色公开读取模型
+#[derive(Debug, Clone, Deserialize)]
+pub struct ZzzCharacter {
+    pub id: String,
+    pub name: String,
+    pub name_en: String,
+    pub name_ja: String,
+    pub name_ko: String,
+    pub description: Option<String>,
+    pub description_en: String,
+    pub icon_url: String,
+    pub code_name: String,
+    pub rarity: i16,
+    pub specialty_id: i32,
+    pub specialty: String,
+    pub element_id: i32,
+    pub element: String,
+    pub special_element: Option<String>,
+    pub special_element_title: Option<String>,
+    pub special_element_description: Option<String>,
+    pub special_element_icon: Option<String>,
+    pub hit_type_id: i32,
+    pub hit_type: String,
+    pub camp_id: i32,
+    pub camp: String,
+    pub gender: String,
+    pub birthday_month: Option<i16>,
+    pub birthday_day: Option<i16>,
+    pub full_name: Option<String>,
+    pub stature: Option<String>,
+    pub live2d: Option<String>,
 }
 
 impl<R> ApplicationServices<R>
 where
     R: ApplicationRepository,
 {
-    /// 列出符合给定筛选条件的角色
-    pub async fn list_characters(
+    /// 列出原神角色
+    pub async fn list_ys_characters(
         &self,
-        filter: CharacterListFilter,
-    ) -> Result<(u64, Vec<CharacterSummary>), ApplicationError> {
-        Ok(self.repository.list_characters(filter).await?)
+        filter: YsCharacterListFilter,
+    ) -> Result<(u64, Vec<YsCharacter>), ApplicationError> {
+        Ok(self.repository.list_ys_characters(filter).await?)
     }
 
-    /// 同步一个游戏提供的全部角色
-    pub async fn sync_characters(
+    /// 列出星铁角色
+    pub async fn list_sr_characters(
         &self,
-        command: SyncCharactersCommand,
-    ) -> Result<SyncCharactersResult, ApplicationError> {
-        Ok(self.repository.sync_characters(command).await?)
+        filter: SrCharacterListFilter,
+    ) -> Result<(u64, Vec<SrCharacter>), ApplicationError> {
+        Ok(self.repository.list_sr_characters(filter).await?)
+    }
+
+    /// 列出绝区零角色
+    pub async fn list_zzz_characters(
+        &self,
+        filter: ZzzCharacterListFilter,
+    ) -> Result<(u64, Vec<ZzzCharacter>), ApplicationError> {
+        Ok(self.repository.list_zzz_characters(filter).await?)
     }
 }

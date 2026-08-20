@@ -107,6 +107,7 @@ pub async fn list_tags(db: &Db, game_id: &str, source_id: &str) -> Result<Vec<Ne
         tags.push(NewsTag {
             news_count: stats_by_name.get(&row.name).copied().unwrap_or_default(),
             name: row.name,
+            untagged: false,
             index: row.index,
             group: row.group,
             group_index: row.group_index,
@@ -116,6 +117,7 @@ pub async fn list_tags(db: &Db, game_id: &str, source_id: &str) -> Result<Vec<Ne
 
     tags.push(NewsTag {
         name: UNTAGGED_TAG_FILTER.to_owned(),
+        untagged: true,
         index: 0,
         group: Some(UNTAGGED_TAG_FILTER.to_owned()),
         group_index: None,

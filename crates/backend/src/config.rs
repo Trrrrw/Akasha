@@ -20,6 +20,8 @@ pub struct Config {
     pub bind_addr: SocketAddr,
     /// 对外公开的静态资源根地址
     pub asset_base_url: String,
+    /// 游戏数据资源持久化目录
+    pub game_data_asset_dir: PathBuf,
     /// 米游社请求视频签名的 Cookie，未配置时仅禁用签名
     pub mys_cookie: Option<String>,
     /// 数据库连接配置
@@ -102,6 +104,7 @@ struct FileServerConfig {
     log_level: Option<String>,
     bind_addr: Option<String>,
     asset_base_url: Option<String>,
+    game_data_asset_dir: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -200,6 +203,11 @@ impl Config {
             )?
             .trim_end_matches('/')
             .to_owned(),
+            game_data_asset_dir: PathBuf::from(string_value(
+                "GAME_DATA_ASSET_DIR",
+                file.server.game_data_asset_dir.as_deref(),
+                "data/game-assets",
+            )),
             mys_cookie: optional_value("MIYOUSHE_COOKIE", file.mys.cookie.as_deref()),
 
             database: DbOptions {

@@ -4,13 +4,19 @@ use akasha_application::{
     ApplicationRepository, RepositoryError, RepositoryResult,
     auth::{AuthUser, CurrentUser, GithubUserProfile, RefreshTokenMetadata},
     characters::{
-        CharacterListFilter, CharacterSummary, SyncCharactersCommand, SyncCharactersResult,
+        SrCharacter, SrCharacterListFilter, YsCharacter, YsCharacterListFilter, ZzzCharacter,
+        ZzzCharacterListFilter,
+    },
+    game_data::{
+        GameDataCollection, GameDataEntry, GameDataListFilter, GameDataRawItem,
+        ListGameDataRawFilter, SyncGameDataCollectionCommand, SyncGameDataCollectionResult,
+        UpdateGameDataCollectionCommand,
     },
     games::GameSummary,
     news::{
-        ListNewsFilter, ListNewsRawFilter, NewsRawItem, NewsSeries, NewsSource, NewsSummary,
-        NewsTag, ReplaceNewsCharactersCommand, ReplaceNewsTagsCommand, SyncNewsTagsCommand,
-        SyncNewsTagsResult, UpdateNewsCommand, UpdateNewsResult,
+        ListNewsFilter, ListNewsRawFilter, NewsFeedFilter, NewsRawItem, NewsSeries, NewsSource,
+        NewsSummary, NewsTag, ReplaceNewsCharactersCommand, ReplaceNewsTagsCommand,
+        SyncNewsTagsCommand, SyncNewsTagsResult, UpdateNewsCommand, UpdateNewsResult,
     },
     workers::{
         WorkerAcquireRequest, WorkerAcquireResult, WorkerCompleteCommand,
@@ -54,22 +60,88 @@ impl ApplicationRepository for Db {
             .map_err(RepositoryError::new)
     }
 
-    /// 将角色分页查询委托给 SeaORM 角色 repository
-    async fn list_characters(
+    async fn list_game_data_collections(
         &self,
-        filter: CharacterListFilter,
-    ) -> RepositoryResult<(u64, Vec<CharacterSummary>)> {
-        repositories::characters::list_characters(self, filter)
+        game_id: &str,
+    ) -> RepositoryResult<Vec<GameDataCollection>> {
+        repositories::game_data::list_collections(self, game_id)
             .await
             .map_err(RepositoryError::new)
     }
 
-    /// 将角色同步命令委托给 SeaORM repository
-    async fn sync_characters(
+    async fn list_game_data(
         &self,
-        command: SyncCharactersCommand,
-    ) -> RepositoryResult<SyncCharactersResult> {
-        repositories::characters::sync_characters(self, command)
+        filter: GameDataListFilter,
+    ) -> RepositoryResult<(u64, Vec<GameDataEntry>)> {
+        repositories::game_data::list(self, filter)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    async fn find_game_data(
+        &self,
+        game_id: &str,
+        collection: &str,
+        id: &str,
+    ) -> RepositoryResult<Option<GameDataEntry>> {
+        repositories::game_data::find(self, game_id, collection, id)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    async fn list_game_data_raw(
+        &self,
+        filter: ListGameDataRawFilter,
+    ) -> RepositoryResult<(u64, Vec<GameDataRawItem>)> {
+        repositories::game_data::list_raw(self, filter)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    async fn sync_game_data_collection(
+        &self,
+        command: SyncGameDataCollectionCommand,
+    ) -> RepositoryResult<SyncGameDataCollectionResult> {
+        repositories::game_data::sync(self, command)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    async fn update_game_data_collection(
+        &self,
+        command: UpdateGameDataCollectionCommand,
+    ) -> RepositoryResult<SyncGameDataCollectionResult> {
+        repositories::game_data::update(self, command)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    /// 将原神角色分页查询委托给 SeaORM repository
+    async fn list_ys_characters(
+        &self,
+        filter: YsCharacterListFilter,
+    ) -> RepositoryResult<(u64, Vec<YsCharacter>)> {
+        repositories::characters::list_ys(self, filter)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    /// 将星铁角色分页查询委托给 SeaORM repository
+    async fn list_sr_characters(
+        &self,
+        filter: SrCharacterListFilter,
+    ) -> RepositoryResult<(u64, Vec<SrCharacter>)> {
+        repositories::characters::list_sr(self, filter)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    /// 将绝区零角色分页查询委托给 SeaORM repository
+    async fn list_zzz_characters(
+        &self,
+        filter: ZzzCharacterListFilter,
+    ) -> RepositoryResult<(u64, Vec<ZzzCharacter>)> {
+        repositories::characters::list_zzz(self, filter)
             .await
             .map_err(RepositoryError::new)
     }
@@ -107,6 +179,13 @@ impl ApplicationRepository for Db {
     /// 将新闻分页查询委托给 SeaORM 新闻 repository
     async fn list_news(&self, filter: ListNewsFilter) -> RepositoryResult<(u64, Vec<NewsSummary>)> {
         repositories::news::list(self, filter)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    /// 将 RSS 新闻读取委托给不执行总数统计的 repository 查询
+    async fn list_news_feed(&self, filter: NewsFeedFilter) -> RepositoryResult<Vec<NewsSummary>> {
+        repositories::news::list_feed(self, filter)
             .await
             .map_err(RepositoryError::new)
     }

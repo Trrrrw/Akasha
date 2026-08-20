@@ -26,6 +26,7 @@ cp config/backend.toml.example config/backend.toml
 | `[server].log_level` | `LOG_LEVEL` | 日志级别过滤器 |
 | `[server].bind_addr` | `BIND_ADDR` | HTTP 监听地址 |
 | `[server].asset_base_url` | `ASSET_BASE_URL` | 对外公开的后端根地址 |
+| `[server].game_data_asset_dir` | `GAME_DATA_ASSET_DIR` | 游戏数据资源持久化目录 |
 | `[database].path` | `SQLITE_PATH` | SQLite 数据库文件路径 |
 | `[auth]` | `JWT_SECRET`、`TOKEN_HASH_SECRET` | 应用 token 密钥 |
 | `[github]` | `GITHUB_*`、`ADMIN_GITHUB_ID` | GitHub OAuth 配置 |
@@ -41,6 +42,7 @@ cp config/backend.toml.example config/backend.toml
 | `LOG_LEVEL` | `info` | 日志级别过滤器 |
 | `BIND_ADDR` | `0.0.0.0:7040` | HTTP 监听地址 |
 | `ASSET_BASE_URL` | 无 | 对外可访问的后端根地址，例如 `https://example.com` |
+| `GAME_DATA_ASSET_DIR` | `data/game-assets` | 游戏数据资源持久化目录 |
 | `SQLITE_PATH` | `data/akasha.sqlite` | SQLite 数据库文件路径，相对路径以进程工作目录为基准 |
 | `JWT_SECRET` | 无 | access token 签名密钥，至少 32 字节 |
 | `TOKEN_HASH_SECRET` | 无 | 敏感 token 哈希密钥，至少 32 字节 |

@@ -6,13 +6,19 @@ use crate::{
     RepositoryResult,
     auth::{AuthUser, CurrentUser, GithubUserProfile, RefreshTokenMetadata},
     characters::{
-        CharacterListFilter, CharacterSummary, SyncCharactersCommand, SyncCharactersResult,
+        SrCharacter, SrCharacterListFilter, YsCharacter, YsCharacterListFilter, ZzzCharacter,
+        ZzzCharacterListFilter,
+    },
+    game_data::{
+        GameDataCollection, GameDataEntry, GameDataListFilter, GameDataRawItem,
+        ListGameDataRawFilter, SyncGameDataCollectionCommand, SyncGameDataCollectionResult,
+        UpdateGameDataCollectionCommand,
     },
     games::GameSummary,
     news::{
-        ListNewsFilter, ListNewsRawFilter, NewsRawItem, NewsSeries, NewsSource, NewsSummary,
-        NewsTag, ReplaceNewsCharactersCommand, ReplaceNewsTagsCommand, SyncNewsTagsCommand,
-        SyncNewsTagsResult, UpdateNewsCommand, UpdateNewsResult,
+        ListNewsFilter, ListNewsRawFilter, NewsFeedFilter, NewsRawItem, NewsSeries, NewsSource,
+        NewsSummary, NewsTag, ReplaceNewsCharactersCommand, ReplaceNewsTagsCommand,
+        SyncNewsTagsCommand, SyncNewsTagsResult, UpdateNewsCommand, UpdateNewsResult,
     },
     workers::{
         WorkerAcquireRequest, WorkerAcquireResult, WorkerCompleteCommand,
@@ -43,17 +49,61 @@ pub trait ApplicationRepository: Send + Sync {
         game_id: &str,
     ) -> impl Future<Output = RepositoryResult<Option<String>>> + Send;
 
-    /// 列出符合分页筛选条件的角色
-    fn list_characters(
+    /// 列出一个游戏已同步的数据集合
+    fn list_game_data_collections(
         &self,
-        filter: CharacterListFilter,
-    ) -> impl Future<Output = RepositoryResult<(u64, Vec<CharacterSummary>)>> + Send;
+        game_id: &str,
+    ) -> impl Future<Output = RepositoryResult<Vec<GameDataCollection>>> + Send;
 
-    /// 同步一个游戏的全部角色
-    fn sync_characters(
+    /// 列出一个游戏数据集合中的条目
+    fn list_game_data(
         &self,
-        command: SyncCharactersCommand,
-    ) -> impl Future<Output = RepositoryResult<SyncCharactersResult>> + Send;
+        filter: GameDataListFilter,
+    ) -> impl Future<Output = RepositoryResult<(u64, Vec<GameDataEntry>)>> + Send;
+
+    /// 查找一个游戏数据条目
+    fn find_game_data(
+        &self,
+        game_id: &str,
+        collection: &str,
+        id: &str,
+    ) -> impl Future<Output = RepositoryResult<Option<GameDataEntry>>> + Send;
+
+    /// 分页读取游戏数据原始条目
+    fn list_game_data_raw(
+        &self,
+        filter: ListGameDataRawFilter,
+    ) -> impl Future<Output = RepositoryResult<(u64, Vec<GameDataRawItem>)>> + Send;
+
+    /// 同步一个游戏的单个数据集合
+    fn sync_game_data_collection(
+        &self,
+        command: SyncGameDataCollectionCommand,
+    ) -> impl Future<Output = RepositoryResult<SyncGameDataCollectionResult>> + Send;
+
+    /// 增量更新一个游戏数据集合
+    fn update_game_data_collection(
+        &self,
+        command: UpdateGameDataCollectionCommand,
+    ) -> impl Future<Output = RepositoryResult<SyncGameDataCollectionResult>> + Send;
+
+    /// 列出符合分页筛选条件的原神角色
+    fn list_ys_characters(
+        &self,
+        filter: YsCharacterListFilter,
+    ) -> impl Future<Output = RepositoryResult<(u64, Vec<YsCharacter>)>> + Send;
+
+    /// 列出符合分页筛选条件的星铁角色
+    fn list_sr_characters(
+        &self,
+        filter: SrCharacterListFilter,
+    ) -> impl Future<Output = RepositoryResult<(u64, Vec<SrCharacter>)>> + Send;
+
+    /// 列出符合分页筛选条件的绝区零角色
+    fn list_zzz_characters(
+        &self,
+        filter: ZzzCharacterListFilter,
+    ) -> impl Future<Output = RepositoryResult<(u64, Vec<ZzzCharacter>)>> + Send;
 
     /// 列出一个游戏已配置的新闻来源
     fn list_news_sources(
@@ -81,6 +131,12 @@ pub trait ApplicationRepository: Send + Sync {
         &self,
         filter: ListNewsFilter,
     ) -> impl Future<Output = RepositoryResult<(u64, Vec<NewsSummary>)>> + Send;
+
+    /// 读取固定发布时间倒序的 RSS 新闻，不执行总数统计
+    fn list_news_feed(
+        &self,
+        filter: NewsFeedFilter,
+    ) -> impl Future<Output = RepositoryResult<Vec<NewsSummary>>> + Send;
 
     /// 读取维护任务需要的原始新闻分页
     fn list_news_raw(

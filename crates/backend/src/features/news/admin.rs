@@ -83,7 +83,6 @@ pub(crate) struct NewsRawItemResponse {
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsCharacterRequest {
     id: String,
-    item_id: String,
     name: String,
 }
 
@@ -176,7 +175,6 @@ pub(crate) async fn update_news(
                     .into_iter()
                     .map(|character| NewsCharacterInput {
                         id: character.id,
-                        item_id: character.item_id,
                         name: character.name,
                     })
                     .collect()
@@ -384,7 +382,6 @@ pub(crate) async fn update_characters(
                         .into_iter()
                         .map(|character| NewsCharacterInput {
                             id: character.id,
-                            item_id: character.item_id,
                             name: character.name,
                         })
                         .collect(),

@@ -8,8 +8,10 @@ mod repository;
 pub mod audit;
 pub mod auth;
 pub mod characters;
+pub mod game_data;
 pub mod games;
 pub mod news;
+pub mod search;
 pub mod workers;
 
 pub use error::{ApplicationError, RepositoryError, RepositoryResult};

@@ -111,24 +111,45 @@ pub(super) struct NewsTagGroupResponse {
 pub(super) struct NewsTagsResponse {
     /// 游戏 ID
     game_id: String,
-    /// 来源 ID
-    source_id: String,
+    /// 新闻来源
+    source: String,
     /// 标签组
     groups: Vec<NewsTagGroupResponse>,
+    /// 没有关联任何标签的新闻统计
+    untagged: NewsUntaggedResponse,
+}
+
+/// 未分类新闻的数量和最近条目
+#[derive(Serialize, ToSchema)]
+#[schema(description = "未分类新闻统计")]
+pub(super) struct NewsUntaggedResponse {
+    /// 新闻数量
+    news_count: NewsCount,
+    /// 最近新闻
+    recent: RecentNews,
 }
 
 impl NewsTagsResponse {
     /// 将已排序的应用层标签聚合为公开标签组
     pub(super) fn from_rows(
         game_id: String,
-        source_id: String,
+        source: String,
         rows: Vec<NewsTag>,
         game_cover: Option<&str>,
         asset_base_url: &str,
     ) -> Self {
         let mut groups: Vec<NewsTagGroupResponse> = Vec::new();
+        let mut untagged = None;
 
         for row in rows {
+            if row.untagged {
+                untagged = Some(NewsUntaggedResponse::from_projection(
+                    row,
+                    game_cover,
+                    asset_base_url,
+                ));
+                continue;
+            }
             let group_name = row.group.clone();
             let group_index = row.group_index;
             let tag = NewsTagResponse::from_projection(row, game_cover, asset_base_url);
@@ -150,8 +171,51 @@ impl NewsTagsResponse {
 
         Self {
             game_id,
-            source_id,
+            source,
             groups,
+            untagged: untagged.unwrap_or_else(NewsUntaggedResponse::empty),
+        }
+    }
+}
+
+impl NewsUntaggedResponse {
+    /// 将应用层未分类统计转换为公开响应
+    fn from_projection(value: NewsTag, game_cover: Option<&str>, asset_base_url: &str) -> Self {
+        let news_count = NewsCount {
+            total: value.news_count.total,
+            article: value.news_count.article,
+            video: value.news_count.video,
+        };
+        let recent = RecentNews {
+            article: value
+                .recent
+                .article
+                .into_iter()
+                .map(|news| NewsItemResponse::from_summary(news, game_cover, asset_base_url))
+                .collect(),
+            video: value
+                .recent
+                .video
+                .into_iter()
+                .map(|news| NewsItemResponse::from_summary(news, game_cover, asset_base_url))
+                .collect(),
+        };
+
+        Self { news_count, recent }
+    }
+
+    /// 在持久化实现未提供统计时返回稳定的空结构
+    fn empty() -> Self {
+        Self {
+            news_count: NewsCount {
+                total: 0,
+                article: 0,
+                video: 0,
+            },
+            recent: RecentNews {
+                article: Vec::new(),
+                video: Vec::new(),
+            },
         }
     }
 }
@@ -160,16 +224,16 @@ impl NewsTagsResponse {
 #[derive(Serialize, ToSchema)]
 #[schema(description = "新闻列表上下文")]
 pub(super) struct NewsListMeta {
-    /// 来源 ID
-    source_id: String,
+    /// 新闻来源
+    source: String,
     /// 游戏 ID
     game_id: String,
 }
 
 impl NewsListMeta {
     /// 创建新闻列表响应的来源和游戏上下文
-    pub(super) fn new(source_id: String, game_id: String) -> Self {
-        Self { source_id, game_id }
+    pub(super) fn new(source: String, game_id: String) -> Self {
+        Self { source, game_id }
     }
 }
 
@@ -179,8 +243,8 @@ impl NewsListMeta {
 pub(crate) struct NewsItemResponse {
     /// 新闻 ID
     id: String,
-    /// 新闻来源 ID，米游社视频解析接口需要使用该来源上下文
-    source_id: String,
+    /// 新闻来源，米游社视频解析接口需要使用该来源上下文
+    source: String,
     /// 新闻标题
     title: String,
     /// RFC 3339 格式的发布时间
@@ -209,8 +273,6 @@ pub(crate) struct NewsItemResponse {
 pub(crate) struct NewsCharacterResponse {
     /// 角色记录 ID
     id: String,
-    /// 游戏内物品 ID
-    item_id: String,
     /// 角色名称
     name: String,
 }
@@ -220,7 +282,6 @@ impl From<NewsCharacter> for NewsCharacterResponse {
     fn from(value: NewsCharacter) -> Self {
         Self {
             id: value.id,
-            item_id: value.item_id,
             name: value.name,
         }
     }
@@ -232,8 +293,8 @@ impl From<NewsCharacter> for NewsCharacterResponse {
 pub(crate) struct RelatedVideoResponse {
     /// 新闻 ID
     id: String,
-    /// 新闻来源 ID
-    source_id: String,
+    /// 新闻来源
+    source: String,
     /// 视频标题
     title: String,
     /// 发布时间
@@ -255,7 +316,7 @@ impl RelatedVideoResponse {
 
         Self {
             id: value.id,
-            source_id: value.source_id,
+            source: value.source_id,
             title: value.title,
             publish_time: value
                 .publish_time
@@ -336,7 +397,7 @@ impl NewsItemResponse {
 
         Self {
             id: value.id,
-            source_id: value.source_id,
+            source: value.source_id,
             title: value.title,
             publish_time: Some(
                 value
@@ -445,7 +506,7 @@ mod tests {
 
         assert_eq!(response.related_videos.len(), 1);
         assert_eq!(response.related_videos[0].id, "news-1");
-        assert_eq!(response.related_videos[0].source_id, "mys");
+        assert_eq!(response.related_videos[0].source, "mys");
         assert_eq!(response.related_videos[0].video_duration, Some(155));
         assert_eq!(response.related_videos[0].tags, ["角色", "PV"]);
         assert_eq!(

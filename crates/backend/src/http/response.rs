@@ -12,6 +12,28 @@ pub fn public_asset_url(asset_base_url: &str, value: Option<String>) -> Option<S
     })
 }
 
+/// 递归把 JSON 中的站内资源路径转换为公开绝对地址
+pub fn public_asset_json(asset_base_url: &str, value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(path) if path.starts_with('/') && !path.starts_with("//") => {
+            serde_json::Value::String(format!("{asset_base_url}{path}"))
+        }
+        serde_json::Value::Array(values) => serde_json::Value::Array(
+            values
+                .into_iter()
+                .map(|value| public_asset_json(asset_base_url, value))
+                .collect(),
+        ),
+        serde_json::Value::Object(values) => serde_json::Value::Object(
+            values
+                .into_iter()
+                .map(|(key, value)| (key, public_asset_json(asset_base_url, value)))
+                .collect(),
+        ),
+        value => value,
+    }
+}
+
 /// 不分页列表接口的统一响应外壳
 #[derive(Serialize, ToSchema)]
 #[schema(description = "列表数据响应")]

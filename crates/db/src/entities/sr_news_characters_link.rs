@@ -1,23 +1,22 @@
 use sea_orm::entity::prelude::*;
 
-use crate::entities::{characters, news};
+use crate::entities::{news, sr_game_data};
 
+/// 星铁新闻与角色的关联
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "news_characters_link")]
+#[sea_orm(table_name = "sr_news_characters_link")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub game_id: String,
-
+    #[sea_orm(primary_key)]
+    pub source_id: String,
     #[sea_orm(primary_key)]
     pub news_id: String,
     #[sea_orm(primary_key)]
-    pub source_id: String,
-
-    #[sea_orm(primary_key)]
     pub character_id: String,
-    #[sea_orm(primary_key)]
-    pub character_item_id: String,
+    #[sea_orm(default_value = "character")]
+    pub character_collection: String,
 
     #[sea_orm(
         belongs_to,
@@ -27,10 +26,10 @@ pub struct Model {
     pub news: Option<news::Entity>,
     #[sea_orm(
         belongs_to,
-        from = "(game_id, character_id, character_item_id)",
-        to = "(game_id, id, item_id)"
+        from = "(character_collection, character_id)",
+        to = "(collection, id)"
     )]
-    pub character: Option<characters::Entity>,
+    pub character: Option<sr_game_data::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -5,6 +5,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, header},
     response::{IntoResponse, Response},
 };
+use axum_extra::extract::Query as MultiQuery;
 use std::net::SocketAddr;
 
 use crate::{
@@ -15,7 +16,7 @@ use crate::{
         },
         nfo,
         query::{
-            NewsDetailPath, NewsEpisodeNfoQuery, NewsListQuery, NewsRssQuery,
+            NewsDetailPath, NewsEpisodeNfoQuery, NewsFilterQuery, NewsPageQuery, NewsRssQuery,
             NewsSeriesEpisodePath, NewsSeriesPath, NewsSourceQuery,
         },
         rss,
@@ -75,16 +76,17 @@ pub(super) async fn list_sources(
 pub(super) async fn list_tags(
     State(state): State<AppState>,
     Path(GamePath { game_id }): Path<GamePath>,
-    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
+    Query(query): Query<NewsSourceQuery>,
 ) -> Result<Json<NewsTagsResponse>, AppError> {
+    let source = query.into_source()?;
     let result = state
         .application()
-        .list_news_tags(&game_id, &source_id)
+        .list_news_tags(&game_id, &source)
         .await?;
 
     Ok(Json(NewsTagsResponse::from_rows(
         game_id,
-        source_id,
+        source,
         result.tags,
         result.game_cover.as_deref(),
         &state.config().asset_base_url,
@@ -96,8 +98,8 @@ pub(super) async fn list_tags(
     path = "/games/{game_id}/news",
     tag = "News",
     summary = "获取新闻列表",
-    description = "按来源、类型、标签、标题和发布日期筛选新闻，并返回稳定分页结果",
-    params(GamePath, NewsListQuery),
+    description = "按来源、标题语法、标签、角色、类型和发布日期筛选新闻，并返回稳定分页结果",
+    params(GamePath, NewsFilterQuery, NewsPageQuery),
     responses(
         (status = 200, body = PageResponse<NewsItemResponse, NewsListMeta>),
         (status = 400, body = crate::http::response::ErrorResponse),
@@ -108,11 +110,12 @@ pub(super) async fn list_tags(
 pub(super) async fn list(
     State(state): State<AppState>,
     Path(path): Path<GamePath>,
-    Query(query): Query<NewsListQuery>,
+    MultiQuery(filter_query): MultiQuery<NewsFilterQuery>,
+    Query(page_query): Query<NewsPageQuery>,
 ) -> Result<Json<PageResponse<NewsItemResponse, NewsListMeta>>, AppError> {
-    let filter = query.into_filter(path)?;
-    let source_id = filter.source_id.clone();
-    let game_id = filter.game_id.clone();
+    let filter = page_query.apply(filter_query.into_filter(path)?)?;
+    let source_id = filter.filter.source_id.clone();
+    let game_id = filter.filter.game_id.clone();
     let limit = filter.limit;
     let offset = filter.offset;
 
@@ -163,14 +166,15 @@ pub(super) async fn list(
 pub(super) async fn detail(
     State(state): State<AppState>,
     Path(NewsDetailPath { game_id, news_id }): Path<NewsDetailPath>,
-    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
+    Query(query): Query<NewsSourceQuery>,
 ) -> Result<Json<NewsDetailResponse>, AppError> {
+    let source = query.into_source()?;
     let result = state
         .application()
-        .find_news_detail(&game_id, &source_id, &news_id)
+        .find_news_detail(&game_id, &source, &news_id)
         .await?
         .ok_or_else(|| {
-            AppError::NotFound(format!("news {news_id} not found in {source_id} {game_id}"))
+            AppError::NotFound(format!("news {news_id} not found in {source} {game_id}"))
         })?;
 
     Ok(Json(NewsDetailResponse::from_result(
@@ -196,14 +200,15 @@ pub(super) async fn detail(
 pub(super) async fn download_movie_nfo(
     State(state): State<AppState>,
     Path(NewsDetailPath { game_id, news_id }): Path<NewsDetailPath>,
-    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
+    Query(query): Query<NewsSourceQuery>,
 ) -> Result<Response, AppError> {
-    let result = find_video_news(&state, &game_id, &source_id, &news_id).await?;
+    let source = query.into_source()?;
+    let result = find_video_news(&state, &game_id, &source, &news_id).await?;
 
     // NFO 只描述媒体元数据，不解析会过期的米游社播放签名
     let document = nfo::build_movie(
         &game_id,
-        &source_id,
+        &source,
         result.item,
         result.game_cover,
         &state.config().asset_base_url,
@@ -230,18 +235,19 @@ pub(super) async fn download_movie_nfo(
 pub(super) async fn download_series_nfo(
     State(state): State<AppState>,
     Path(NewsSeriesPath { game_id, tag_name }): Path<NewsSeriesPath>,
-    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
+    Query(query): Query<NewsSourceQuery>,
 ) -> Result<Response, AppError> {
+    let source = query.into_source()?;
     let series = state
         .application()
-        .find_news_series(&game_id, &source_id, &tag_name)
+        .find_news_series(&game_id, &source, &tag_name)
         .await?
         .ok_or_else(|| {
             AppError::NotFound(format!(
-                "video series {tag_name} not found in {source_id} {game_id}"
+                "video series {tag_name} not found in {source} {game_id}"
             ))
         })?;
-    let document = nfo::build_series(&game_id, &source_id, series, &state.config().asset_base_url)
+    let document = nfo::build_series(&game_id, &source, series, &state.config().asset_base_url)
         .map_err(AppError::Internal)?;
 
     nfo_file_response(document)
@@ -272,11 +278,11 @@ pub(super) async fn download_episode_nfo(
     Query(query): Query<NewsEpisodeNfoQuery>,
 ) -> Result<Response, AppError> {
     let NewsEpisodeNfoQuery {
-        source_id,
+        source,
         season,
         episode,
     } = query.validate()?;
-    let result = find_video_news(&state, &game_id, &source_id, &news_id).await?;
+    let result = find_video_news(&state, &game_id, &source, &news_id).await?;
     if !result.item.tags.iter().any(|tag| tag == &tag_name) {
         return Err(AppError::NotFound(format!(
             "video news {news_id} does not belong to tag {tag_name}"
@@ -284,14 +290,14 @@ pub(super) async fn download_episode_nfo(
     }
     let series = state
         .application()
-        .find_news_series(&game_id, &source_id, &tag_name)
+        .find_news_series(&game_id, &source, &tag_name)
         .await?
         .ok_or_else(|| {
             AppError::NotFound(format!(
-                "video series {tag_name} not found in {source_id} {game_id}"
+                "video series {tag_name} not found in {source} {game_id}"
             ))
         })?;
-    let context = nfo::EpisodeNfoContext::new(&game_id, &source_id, series, season, episode);
+    let context = nfo::EpisodeNfoContext::new(&game_id, &source, series, season, episode);
     let document = nfo::build_episode(context, result.item, &state.config().asset_base_url)
         .map_err(AppError::Internal)?;
 
@@ -322,19 +328,20 @@ pub(super) async fn video(
     ConnectInfo(client_address): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Path(NewsDetailPath { game_id, news_id }): Path<NewsDetailPath>,
-    Query(NewsSourceQuery { source_id }): Query<NewsSourceQuery>,
+    Query(query): Query<NewsSourceQuery>,
 ) -> Result<Json<NewsVideoResponse>, AppError> {
+    let source = query.into_source()?;
     // 在读取数据库或访问米游社前按安全解析的客户端 IP 消耗视频接口令牌
     let client_ip = state
         .public_rate_limiters()
         .client_ip(&headers, client_address);
     state.public_rate_limiters().check_video(client_ip)?;
 
-    let result = find_video_news(&state, &game_id, &source_id, &news_id).await?;
+    let result = find_video_news(&state, &game_id, &source, &news_id).await?;
     let item = result.item;
 
     // 米游社视频必须按文章 ID 请求最新签名，其他来源沿用数据库中的地址
-    let video_url = if source_id == "mys" {
+    let video_url = if source == "mys" {
         state
             .mys_video_service()
             .resolve_video_url(&game_id, &news_id)
@@ -354,7 +361,7 @@ pub(super) async fn video(
     tag = "News",
     summary = "获取新闻 RSS",
     description = "按新闻筛选条件生成固定为发布时间倒序的 RSS 2.0 订阅源；请求按客户端 IP 限流，冷缓存签名刷新数量受请求预算限制",
-    params(GamePath, NewsRssQuery),
+    params(GamePath, NewsFilterQuery, NewsRssQuery),
     responses(
         (status = 200, description = "RSS 2.0 XML", content_type = "application/rss+xml"),
         (status = 400, body = crate::http::response::ErrorResponse),
@@ -372,7 +379,8 @@ pub(super) async fn rss(
     ConnectInfo(client_address): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Path(path): Path<GamePath>,
-    Query(query): Query<NewsRssQuery>,
+    MultiQuery(filter_query): MultiQuery<NewsFilterQuery>,
+    Query(rss_query): Query<NewsRssQuery>,
 ) -> Result<Response, AppError> {
     // RSS 查询和签名解析共用一次安全解析的客户端限流检查
     let client_ip = state
@@ -380,11 +388,11 @@ pub(super) async fn rss(
         .client_ip(&headers, client_address);
     state.public_rate_limiters().check_rss(client_ip)?;
 
-    let filter = query.into_filter(path)?;
-    let source_id = filter.source_id.clone();
-    let game_id = filter.game_id.clone();
+    let filter = rss_query.apply(filter_query.into_filter(path)?);
+    let source_id = filter.filter.source_id.clone();
+    let game_id = filter.filter.game_id.clone();
 
-    let result = state.application().list_news(filter).await?;
+    let result = state.application().list_news_feed(filter).await?;
     let mut items = result.items;
 
     // 缓存命中不消耗预算，冷缓存最多刷新配置数量的米游社视频签名
