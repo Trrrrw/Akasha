@@ -3,6 +3,10 @@
 use akasha_application::{
     ApplicationRepository, RepositoryError, RepositoryResult,
     auth::{AuthUser, CurrentUser, GithubUserProfile, RefreshTokenMetadata},
+    calendar::{
+        CalendarEvent, GameVersion, ListCalendarEventsFilter, SyncCalendarCommand,
+        SyncCalendarResult,
+    },
     characters::{
         SrCharacter, SrCharacterListFilter, YsCharacter, YsCharacterListFilter, ZzzCharacter,
         ZzzCharacterListFilter,
@@ -56,6 +60,33 @@ impl ApplicationRepository for Db {
     /// 将游戏封面读取委托给 SeaORM 游戏 repository
     async fn find_game_cover(&self, game_id: &str) -> RepositoryResult<Option<String>> {
         repositories::games::find_cover_by_id(self, game_id)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    /// 将公开活动查询委托给日历 repository
+    async fn list_calendar_events(
+        &self,
+        filter: ListCalendarEventsFilter,
+    ) -> RepositoryResult<Vec<CalendarEvent>> {
+        repositories::calendar::list_events(self, filter)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    /// 将版本目录查询委托给日历 repository
+    async fn list_game_versions(&self, game_id: &str) -> RepositoryResult<Vec<GameVersion>> {
+        repositories::calendar::list_versions(self, game_id)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    /// 将版本和活动同步委托给日历 repository
+    async fn sync_calendar(
+        &self,
+        command: SyncCalendarCommand,
+    ) -> RepositoryResult<SyncCalendarResult> {
+        repositories::calendar::sync(self, command)
             .await
             .map_err(RepositoryError::new)
     }

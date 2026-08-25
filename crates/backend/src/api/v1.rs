@@ -7,7 +7,7 @@ use utoipa_axum::router::OpenApiRouter;
 
 use crate::{
     api::{auth, docs::OPENAPI_TITLE},
-    features::{calendar, events, game_data, games, news},
+    features::{calendar, game_data, games, news},
     state::AppState,
 };
 
@@ -21,7 +21,6 @@ pub(crate) fn router() -> (Router<AppState>, OpenApi) {
                 .merge(games::public_router())
                 .merge(game_data::public_router())
                 .merge(news::public_router())
-                .merge(events::public_router())
                 .merge(calendar::public_router()),
         )
         .split_for_parts();
@@ -117,6 +116,9 @@ mod tests {
         assert!(!paths.contains_key("/api/v1/games/ys/characters"));
         assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/character-birthdays"));
         assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/character-birthdays.ics"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/events"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/events.ics"));
+        assert!(!paths.contains_key("/api/v1/games/{game_id}/events"));
         assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar"));
         assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar/ics"));
         assert!(!paths.contains_key("/api/v1/games/{game_id}/chars"));

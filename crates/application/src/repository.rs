@@ -5,6 +5,10 @@ use chrono::{DateTime, FixedOffset};
 use crate::{
     RepositoryResult,
     auth::{AuthUser, CurrentUser, GithubUserProfile, RefreshTokenMetadata},
+    calendar::{
+        CalendarEvent, GameVersion, ListCalendarEventsFilter, SyncCalendarCommand,
+        SyncCalendarResult,
+    },
     characters::{
         SrCharacter, SrCharacterListFilter, YsCharacter, YsCharacterListFilter, ZzzCharacter,
         ZzzCharacterListFilter,
@@ -48,6 +52,24 @@ pub trait ApplicationRepository: Send + Sync {
         &self,
         game_id: &str,
     ) -> impl Future<Output = RepositoryResult<Option<String>>> + Send;
+
+    /// 查询指定时间范围内的游戏活动
+    fn list_calendar_events(
+        &self,
+        filter: ListCalendarEventsFilter,
+    ) -> impl Future<Output = RepositoryResult<Vec<CalendarEvent>>> + Send;
+
+    /// 列出一个游戏的版本目录
+    fn list_game_versions(
+        &self,
+        game_id: &str,
+    ) -> impl Future<Output = RepositoryResult<Vec<GameVersion>>> + Send;
+
+    /// 原子同步一个游戏的版本和活动投影
+    fn sync_calendar(
+        &self,
+        command: SyncCalendarCommand,
+    ) -> impl Future<Output = RepositoryResult<SyncCalendarResult>> + Send;
 
     /// 列出一个游戏已同步的数据集合
     fn list_game_data_collections(

@@ -1,4 +1,5 @@
 use akasha_application::news::NewsSummary;
+use chrono::Utc;
 use rss::{ChannelBuilder, GuidBuilder, ItemBuilder};
 
 use crate::http::response::public_asset_url;
@@ -11,7 +12,9 @@ pub(super) fn build(
     game_cover: Option<String>,
     asset_base_url: &str,
 ) -> String {
-    let last_build_date = rows.first().map(|item| item.publish_time.to_rfc2822());
+    let last_build_date = rows
+        .first()
+        .map(|item| item.publish_time.with_timezone(&Utc).to_rfc2822());
 
     let items = rows
         .into_iter()
@@ -21,7 +24,7 @@ pub(super) fn build(
             item_builder
                 .title(Some(news.title))
                 .link(Some(news.source_url.clone()))
-                .pub_date(Some(news.publish_time.to_rfc2822()))
+                .pub_date(Some(news.publish_time.with_timezone(&Utc).to_rfc2822()))
                 .guid(Some(
                     GuidBuilder::default()
                         .value(format!("{game_id}:{source_id}:{}", news.id))

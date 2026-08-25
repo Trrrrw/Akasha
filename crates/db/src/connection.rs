@@ -169,6 +169,25 @@ impl Db {
             .col("created_at")
             .to_owned();
 
+        let calendar_event_range_index = Index::create()
+            .if_not_exists()
+            .name("idx_game_events_game_start_end_id")
+            .table("game_events")
+            .col("game_id")
+            .col("start_time")
+            .col("end_time")
+            .col("id")
+            .to_owned();
+
+        let game_version_start_index = Index::create()
+            .if_not_exists()
+            .name("idx_game_versions_game_start_id")
+            .table("game_versions")
+            .col("game_id")
+            .col("start_time")
+            .col("id")
+            .to_owned();
+
         let ys_game_data_index =
             game_data_index("idx_ys_game_data_collection_name_id", "ys_game_data");
         let sr_game_data_index =
@@ -211,6 +230,8 @@ impl Db {
             ys_news_character_index,
             sr_news_character_index,
             zzz_news_character_index,
+            calendar_event_range_index,
+            game_version_start_index,
         ] {
             self.conn
                 .execute(&index)
@@ -258,6 +279,9 @@ fn news_character_index(name: &str, table: &str) -> sea_orm::sea_query::IndexCre
 mod tests {
     use akasha_application::{
         audit::{AuditActorType, AuditContext},
+        calendar::{
+            CalendarEventInput, GameVersionInput, ListCalendarEventsFilter, SyncCalendarCommand,
+        },
         characters::YsCharacterListFilter,
         game_data::{
             GameDataCollectionFilter, GameDataEntry, GameDataListFilter, ListGameDataRawFilter,
@@ -269,7 +293,7 @@ mod tests {
         },
         search::TextQuery,
     };
-    use chrono::Utc;
+    use chrono::{FixedOffset, TimeZone, Utc};
     use sea_orm::{EntityTrait, PaginatorTrait};
     use serde_json::json;
 
@@ -345,6 +369,14 @@ mod tests {
             raw_data: Some(json!({ "id": id, "name": name })),
             source_hash: Some(format!("hash-{id}")),
         }
+    }
+
+    fn calendar_time(month: u32, day: u32, hour: u32) -> chrono::DateTime<FixedOffset> {
+        FixedOffset::east_opt(8 * 60 * 60)
+            .expect("UTC+8 should be valid")
+            .with_ymd_and_hms(2026, month, day, hour, 0, 0)
+            .single()
+            .expect("test calendar time should be valid")
     }
 
     #[tokio::test]
@@ -720,5 +752,82 @@ mod tests {
             feed.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
             ["news-1"]
         );
+    }
+
+    #[tokio::test]
+    async fn synchronizes_versions_and_calendar_events_transactionally() {
+        let db = Db::init(DbOptions {
+            sqlite_path: ":memory:".to_owned(),
+        })
+        .await
+        .expect("SQLite schema and seed data should initialize");
+
+        let result = repositories::calendar::sync(
+            &db,
+            SyncCalendarCommand {
+                game_id: "ys".to_owned(),
+                replace: true,
+                versions: vec![
+                    GameVersionInput {
+                        id: "7.0".to_owned(),
+                        name: Some("无神怜爱的雪国".to_owned()),
+                        start_time: calendar_time(8, 12, 11),
+                        time_status: "scheduled".to_owned(),
+                        source_id: "mys".to_owned(),
+                        source_news_id: "version-70".to_owned(),
+                        source_hash: "version-hash-70".to_owned(),
+                    },
+                    GameVersionInput {
+                        id: "7.1".to_owned(),
+                        name: None,
+                        start_time: calendar_time(9, 23, 11),
+                        time_status: "scheduled".to_owned(),
+                        source_id: "mys".to_owned(),
+                        source_news_id: "version-71".to_owned(),
+                        source_hash: "version-hash-71".to_owned(),
+                    },
+                ],
+                events: vec![CalendarEventInput {
+                    id: "event-1".to_owned(),
+                    kind: "game_activity".to_owned(),
+                    title: "新芽相助·初探雪原".to_owned(),
+                    start_time: calendar_time(8, 12, 11),
+                    end_time: calendar_time(8, 24, 4),
+                    version_id: Some("7.0".to_owned()),
+                    start_version_id: Some("7.0".to_owned()),
+                    cover: Some("https://example.com/event.jpg".to_owned()),
+                    labels: vec!["千星奇域".to_owned()],
+                    source_id: "mys".to_owned(),
+                    source_news_id: "news-1".to_owned(),
+                    source_url: "https://example.com/news-1".to_owned(),
+                    source_hash: "event-hash-1".to_owned(),
+                }],
+                audit: audit_context(),
+            },
+        )
+        .await
+        .expect("calendar projection should synchronize");
+
+        assert_eq!(result.versions_created, 2);
+        assert_eq!(result.events_created, 1);
+        let versions = repositories::calendar::list_versions(&db, "ys")
+            .await
+            .expect("versions should be queryable");
+        assert_eq!(versions[0].end_time, Some(calendar_time(9, 23, 11)));
+        assert_eq!(versions[1].end_time, None);
+        let events = repositories::calendar::list_events(
+            &db,
+            ListCalendarEventsFilter {
+                game_id: "ys".to_owned(),
+                start_time: calendar_time(8, 1, 0),
+                end_time: calendar_time(9, 1, 0),
+                kinds: vec!["game_activity".to_owned()],
+                limit: 20,
+            },
+        )
+        .await
+        .expect("events should be queryable");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].labels, ["千星奇域"]);
     }
 }

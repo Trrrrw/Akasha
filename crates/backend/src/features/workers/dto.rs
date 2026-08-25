@@ -2,6 +2,8 @@ use akasha_application::workers::{WorkerLease, WorkerPhase};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::http::response::utc_timestamp;
+
 /// 获取 worker 租约的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct AcquireWorkerRequest {
@@ -32,8 +34,8 @@ impl From<WorkerLease> for AcquireWorkerResponse {
             status: lease.status.as_str().to_owned(),
             checkpoint: lease.checkpoint,
             run_id: lease.run_id,
-            lease_until: lease.lease_until.to_rfc3339(),
-            last_success_at: lease.last_success_at.map(|value| value.to_rfc3339()),
+            lease_until: utc_timestamp(lease.lease_until),
+            last_success_at: lease.last_success_at.map(utc_timestamp),
         }
     }
 }

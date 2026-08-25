@@ -16,7 +16,6 @@ pub enum AppError {
     Forbidden(String),
     Conflict(String),
     NotFound(String),
-    NotImplemented(String),
     TooManyRequests { retry_after_seconds: u64 },
     Internal(anyhow::Error),
 }
@@ -33,10 +32,6 @@ impl IntoResponse for AppError {
             AppError::Forbidden(message) => (StatusCode::FORBIDDEN, message, None),
             AppError::Conflict(message) => (StatusCode::CONFLICT, message, None),
             AppError::NotFound(message) => (StatusCode::NOT_FOUND, message, None),
-            AppError::NotImplemented(message) => {
-                tracing::warn!(error.message = %message, "not implemented endpoint called");
-                (StatusCode::NOT_IMPLEMENTED, message, None)
-            }
             AppError::TooManyRequests {
                 retry_after_seconds,
             } => {

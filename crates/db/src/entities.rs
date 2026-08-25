@@ -1,5 +1,6 @@
 pub mod audit_logs;
 pub mod game_events;
+pub mod game_versions;
 pub mod games;
 pub mod news;
 pub mod news_sources;

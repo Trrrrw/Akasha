@@ -2,8 +2,8 @@ use akasha_application::news::{NewsCharacter, NewsDetailResult, NewsSource, News
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use super::{china_timezone, video_duration_seconds};
-use crate::http::response::public_asset_url;
+use super::video_duration_seconds;
+use crate::http::response::{public_asset_url, utc_timestamp};
 
 /// 公开新闻数量统计
 #[derive(Serialize, ToSchema)]
@@ -247,7 +247,7 @@ pub(crate) struct NewsItemResponse {
     source: String,
     /// 新闻标题
     title: String,
-    /// RFC 3339 格式的发布时间
+    /// UTC RFC 3339 格式的发布时间
     publish_time: Option<String>,
     /// 新闻原始页面地址
     source_url: String,
@@ -297,7 +297,7 @@ pub(crate) struct RelatedVideoResponse {
     source: String,
     /// 视频标题
     title: String,
-    /// 发布时间
+    /// UTC RFC 3339 格式的发布时间
     publish_time: String,
     /// 视频封面
     cover: Option<String>,
@@ -312,16 +312,11 @@ pub(crate) struct RelatedVideoResponse {
 impl RelatedVideoResponse {
     /// 将应用层新闻摘要转换为相关视频响应
     fn from_summary(value: NewsSummary, game_cover: Option<&str>, asset_base_url: &str) -> Self {
-        let china_timezone = china_timezone();
-
         Self {
             id: value.id,
             source: value.source_id,
             title: value.title,
-            publish_time: value
-                .publish_time
-                .with_timezone(&china_timezone)
-                .to_rfc3339(),
+            publish_time: utc_timestamp(value.publish_time),
             cover: public_asset_url(
                 asset_base_url,
                 value.cover.or_else(|| game_cover.map(str::to_owned)),
@@ -386,8 +381,6 @@ impl NewsItemResponse {
         game_cover: Option<&str>,
         asset_base_url: &str,
     ) -> Self {
-        let china_timezone = china_timezone();
-
         // 米游社保存的是未签名地址，公开响应只暴露专用播放接口
         let video_url = if value.source_id == "mys" {
             None
@@ -399,12 +392,7 @@ impl NewsItemResponse {
             id: value.id,
             source: value.source_id,
             title: value.title,
-            publish_time: Some(
-                value
-                    .publish_time
-                    .with_timezone(&china_timezone)
-                    .to_rfc3339(),
-            ),
+            publish_time: Some(utc_timestamp(value.publish_time)),
             source_url: value.source_url,
             cover: public_asset_url(
                 asset_base_url,
@@ -427,7 +415,7 @@ impl NewsItemResponse {
 #[cfg(test)]
 mod tests {
     use akasha_application::news::{NewsDetailResult, NewsSummary};
-    use chrono::Utc;
+    use chrono::DateTime;
 
     use super::{NewsDetailResponse, NewsItemResponse, NewsVideoResponse};
 
@@ -437,7 +425,8 @@ mod tests {
             id: "news-1".to_owned(),
             source_id: source_id.to_owned(),
             title: "测试新闻".to_owned(),
-            publish_time: Utc::now().fixed_offset(),
+            publish_time: DateTime::parse_from_rfc3339("2026-07-01T11:00:00+08:00")
+                .expect("test timestamp should be valid"),
             source_url: "https://example.com/news-1".to_owned(),
             cover: None,
             news_type: "video".to_owned(),
@@ -459,6 +448,10 @@ mod tests {
         );
 
         assert_eq!(response.video_url, None);
+        assert_eq!(
+            response.publish_time.as_deref(),
+            Some("2026-07-01T03:00:00Z")
+        );
     }
 
     /// 非米游社视频可以直接返回已保存地址

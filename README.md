@@ -95,6 +95,8 @@ cargo test --workspace
 - 健康检查：`http://localhost:7040/healthz`
 - Scalar API 文档：`http://localhost:7040/scalar`
 
+API 中表示确定时间点的 JSON 字段统一使用精确到秒的 UTC RFC 3339 格式，例如 `2026-07-01T03:00:00Z`。RSS 使用等价的 UTC RFC 2822 时间，ICS 使用 UTC `Z` 时间。生日和发布日期等不含时区语义的纯日期仍使用 `YYYY-MM-DD`
+
 ## Docker 运行
 
 先创建后端使用的实际配置文件，并填写部署参数：

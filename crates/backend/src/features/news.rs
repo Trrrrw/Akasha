@@ -40,7 +40,7 @@ pub(crate) fn admin_router() -> Router<AppState> {
         .route("/news/characters/update", post(admin::update_characters))
 }
 
-/// 返回公开接口统一使用的中国标准时区
+/// 返回 NFO 本地日期计算使用的中国标准时区
 pub(super) fn china_timezone() -> FixedOffset {
     FixedOffset::east_opt(8 * 60 * 60).expect("UTC+8 应为有效时区偏移")
 }

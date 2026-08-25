@@ -314,7 +314,7 @@ fn birthday_recurrence(month: i16, day: i16) -> &'static str {
     }
 }
 
-fn ics_escape(value: &str) -> String {
+pub(super) fn ics_escape(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('\n', "\\n")

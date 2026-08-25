@@ -4,10 +4,11 @@ use akasha_application::news::{
 };
 use axum::{
     Json,
-    extract::{Query, State},
+    extract::State,
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use axum_extra::extract::Query as MultiQuery;
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,6 +18,7 @@ use crate::{
     http::{
         error::AppError,
         extractors::{AuditRequest, DataWriteActor},
+        response::utc_timestamp,
     },
     state::AppState,
 };
@@ -51,6 +53,8 @@ pub(crate) struct NewsRawQuery {
     id: Option<String>,
     after_id: Option<String>,
     news_type: Option<String>,
+    #[serde(default)]
+    tag: Vec<String>,
     limit: Option<u64>,
 }
 
@@ -90,7 +94,7 @@ pub(crate) struct UpdateNewsCharacterRequest {
 pub(crate) async fn list_raw(
     actor: DataWriteActor,
     State(state): State<AppState>,
-    Query(query): Query<NewsRawQuery>,
+    MultiQuery(query): MultiQuery<NewsRawQuery>,
 ) -> Result<Json<NewsRawPageResponse>, AppError> {
     tracing::debug!(
         actor = %actor.label(),
@@ -114,6 +118,12 @@ pub(crate) async fn list_raw(
             news_id: query.id,
             after_id: query.after_id,
             news_type: query.news_type,
+            tags: query
+                .tag
+                .into_iter()
+                .map(|tag| tag.trim().to_owned())
+                .filter(|tag| !tag.is_empty())
+                .collect(),
             limit,
         })
         .await?;
@@ -134,7 +144,7 @@ impl From<akasha_application::news::NewsRawItem> for NewsRawItemResponse {
             id: value.id,
             title: value.title,
             intro: value.intro,
-            publish_time: value.publish_time.to_rfc3339(),
+            publish_time: utc_timestamp(value.publish_time),
             source_url: value.source_url,
             cover: value.cover,
             news_type: value.news_type,

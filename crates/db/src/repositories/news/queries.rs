@@ -201,6 +201,17 @@ pub async fn list_raw(
         query = query.filter(news::Column::NewsType.eq(news_type));
     }
 
+    if !filter.tags.is_empty() {
+        let tagged_news_ids = news_tags_link::Entity::find()
+            .select_only()
+            .column(news_tags_link::Column::NewsId)
+            .filter(news_tags_link::Column::GameId.eq(&filter.game_id))
+            .filter(news_tags_link::Column::SourceId.eq(&filter.source_id))
+            .filter(news_tags_link::Column::Name.is_in(filter.tags))
+            .into_query();
+        query = query.filter(news::Column::Id.in_subquery(tagged_news_ids));
+    }
+
     let total = query
         .clone()
         .count(db.conn())

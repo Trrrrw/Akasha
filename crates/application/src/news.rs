@@ -136,6 +136,7 @@ pub struct ListNewsRawFilter {
     pub news_id: Option<String>,
     pub after_id: Option<String>,
     pub news_type: Option<String>,
+    pub tags: Vec<String>,
     pub limit: u64,
 }
 

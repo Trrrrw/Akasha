@@ -3,25 +3,20 @@ use sea_orm::entity::prelude::*;
 use crate::entities::games;
 
 #[sea_orm::model]
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "game_events")]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+#[sea_orm(table_name = "game_versions")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub game_id: String,
     #[sea_orm(primary_key)]
     pub id: String,
 
-    pub kind: String,
-    pub title: String,
+    pub name: Option<String>,
     pub start_time: DateTimeWithTimeZone,
-    pub end_time: DateTimeWithTimeZone,
-    pub version_id: Option<String>,
-    pub start_version_id: Option<String>,
-    pub cover: Option<String>,
-    pub labels: Json,
+    pub end_time: Option<DateTimeWithTimeZone>,
+    pub time_status: String,
     pub source_id: String,
     pub source_news_id: String,
-    pub source_url: String,
     pub source_hash: String,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,

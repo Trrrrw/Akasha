@@ -1,5 +1,13 @@
+use chrono::{DateTime, FixedOffset, SecondsFormat, Utc};
 use serde::Serialize;
 use utoipa::ToSchema;
+
+/// 将一个确定时间点统一序列化为精确到秒的 UTC RFC 3339 时间戳
+pub fn utc_timestamp(value: DateTime<FixedOffset>) -> String {
+    value
+        .with_timezone(&Utc)
+        .to_rfc3339_opts(SecondsFormat::Secs, true)
+}
 
 /// 将可选的站内资源相对路径转换为公开绝对地址
 pub fn public_asset_url(asset_base_url: &str, value: Option<String>) -> Option<String> {
@@ -72,5 +80,20 @@ impl ErrorResponse {
     /// 为客户端可见消息创建标准错误响应体
     pub fn new(message: String) -> Self {
         Self { message }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::DateTime;
+
+    use super::utc_timestamp;
+
+    #[test]
+    fn serializes_timestamp_as_utc_to_second_precision() {
+        let value = DateTime::parse_from_rfc3339("2026-07-01T11:00:00.123456+08:00")
+            .expect("test timestamp should be valid");
+
+        assert_eq!(utc_timestamp(value), "2026-07-01T03:00:00Z");
     }
 }
