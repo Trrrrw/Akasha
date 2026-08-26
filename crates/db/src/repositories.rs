@@ -1,5 +1,4 @@
 pub(crate) mod audit;
-pub(crate) mod auth;
 pub(crate) mod calendar;
 pub(crate) mod characters;
 pub(crate) mod game_data;
