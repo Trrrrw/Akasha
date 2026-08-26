@@ -4,7 +4,7 @@ mod events;
 
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, put},
 };
 use chrono::FixedOffset;
 use utoipa_axum::router::OpenApiRouter;
@@ -26,10 +26,10 @@ pub(crate) fn public_router() -> OpenApiRouter<AppState> {
 pub(crate) fn admin_router() -> Router<AppState> {
     Router::new()
         .route(
-            "/calendar/{game_id}/versions/raw",
+            "/games/{game_id}/calendar/versions/raw",
             get(admin::list_versions),
         )
-        .route("/calendar/{game_id}/sync", post(admin::sync_calendar))
+        .route("/games/{game_id}/calendar", put(admin::sync_calendar))
 }
 
 /// 返回日历接口统一使用的中国标准时区

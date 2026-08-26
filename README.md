@@ -1,10 +1,10 @@
 # Akasha
 
-Akasha 是一个使用 Rust 和 SQLite 实现的游戏信息聚合后端。数据通过受保护的管理接口写入，公开仓库不包含具体数据采集实现
+Akasha 是一个使用 Rust 和 SQLite 实现的游戏信息聚合后端。公开查询接口无需认证，数据通过受保护的管理接口写入，公开仓库不包含具体数据采集实现
 
 ## 项目结构
 
-- `crates/backend`：Axum HTTP 交付层、认证、OpenAPI 文档及应用装配
+- `crates/backend`：Axum HTTP 交付层、数据写入鉴权、OpenAPI 文档及应用装配
 - `crates/application`：与 HTTP、SeaORM 无关的应用服务、数据模型和 repository 端口
 - `crates/db`：SeaORM Entity、SQLite repository 和 schema 同步
 - `crates/mys`：米游社视频临时签名客户端
@@ -28,9 +28,7 @@ cp config/backend.toml.example config/backend.toml
 | `[server].asset_base_url` | `ASSET_BASE_URL` | 对外公开的后端根地址 |
 | `[server].game_data_asset_dir` | `GAME_DATA_ASSET_DIR` | 游戏数据资源持久化目录 |
 | `[database].path` | `SQLITE_PATH` | SQLite 数据库文件路径 |
-| `[auth]` | `JWT_SECRET`、`TOKEN_HASH_SECRET` | 应用 token 密钥 |
-| `[github]` | `GITHUB_*`、`ADMIN_GITHUB_ID` | GitHub OAuth 配置 |
-| `[worker].token` | `WORKER_TOKEN` | 内部 worker 凭据 |
+| `[security].data_write_token` | `DATA_WRITE_TOKEN` | 受保护数据写入接口的 Bearer 凭据 |
 | `[mys].cookie` | `MIYOUSHE_COOKIE` | 米游社视频签名 Cookie |
 | `[rate_limits]` | `RATE_LIMIT_*`、`NEWS_*` | 公开接口限流配置 |
 | `[audit].retention_days` | `AUDIT_LOG_RETENTION_DAYS` | 审计日志保留天数 |
@@ -44,13 +42,7 @@ cp config/backend.toml.example config/backend.toml
 | `ASSET_BASE_URL` | 无 | 对外可访问的后端根地址，例如 `https://example.com` |
 | `GAME_DATA_ASSET_DIR` | `data/game-assets` | 游戏数据资源持久化目录 |
 | `SQLITE_PATH` | `data/akasha.sqlite` | SQLite 数据库文件路径，相对路径以进程工作目录为基准 |
-| `JWT_SECRET` | 无 | access token 签名密钥，至少 32 字节 |
-| `TOKEN_HASH_SECRET` | 无 | 敏感 token 哈希密钥，至少 32 字节 |
-| `GITHUB_CLIENT_ID` | 无 | GitHub OAuth 客户端 ID |
-| `GITHUB_CLIENT_SECRET` | 无 | GitHub OAuth 客户端密钥 |
-| `GITHUB_OAUTH_REDIRECT_URL` | 无 | GitHub OAuth 回调地址 |
-| `ADMIN_GITHUB_ID` | 无 | 自动授予管理员权限的 GitHub 用户 ID |
-| `WORKER_TOKEN` | 无 | 内部写入接口凭据，至少 32 字节 |
+| `DATA_WRITE_TOKEN` | 无 | 管理写入与 worker 协调接口共用的 Bearer 凭据，至少 32 字节 |
 | `MIYOUSHE_COOKIE` | 无 | 获取米游社视频临时签名所需的 Cookie |
 | `RATE_LIMIT_TRUSTED_PROXY_IPS` | 空 | 可提供 `X-Forwarded-For` 的可信反向代理 IP，多个值用逗号分隔 |
 | `NEWS_VIDEO_RATE_LIMIT_PER_MINUTE` | `30` | 视频详情接口每分钟为每个客户端 IP 补充的请求令牌数 |
@@ -60,9 +52,15 @@ cp config/backend.toml.example config/backend.toml
 | `NEWS_RSS_MYS_REFRESH_LIMIT` | `10` | 单次 RSS 请求最多触发的米游社视频签名刷新数，缓存命中不计入，设为 `0` 可禁用刷新 |
 | `AUDIT_LOG_RETENTION_DAYS` | `180` | 审计日志保留天数，后端每天清理超过期限的记录 |
 
+公开读取接口不需要凭据。`/api/v1/admin/...` 下的管理写入和 worker 协调接口统一要求：
+
+```http
+Authorization: Bearer <DATA_WRITE_TOKEN>
+```
+
 反向代理部署时，应仅将实际代理的直连 IP 写入 `RATE_LIMIT_TRUSTED_PROXY_IPS`。未配置或请求并非来自可信代理时，后端会忽略 `X-Forwarded-For`，避免客户端伪造地址绕过限流
 
-可以分别生成三个随机密钥：
+可以生成一个随机数据写入凭据：
 
 ```bash
 openssl rand -base64 32

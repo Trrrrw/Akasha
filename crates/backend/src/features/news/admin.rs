@@ -4,7 +4,7 @@ use akasha_application::news::{
 };
 use axum::{
     Json,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
@@ -18,6 +18,7 @@ use crate::{
     http::{
         error::AppError,
         extractors::{AuditRequest, DataWriteActor},
+        path::{GamePath, require_news_source},
         response::utc_timestamp,
     },
     state::AppState,
@@ -26,7 +27,6 @@ use crate::{
 /// 创建或更新新闻的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsRequest {
-    game_id: String,
     source_id: String,
     id: String,
     title: String,
@@ -48,7 +48,6 @@ pub(crate) struct UpdateNewsRequest {
 /// 读取维护任务所需原始新闻的管理查询参数
 #[derive(Deserialize)]
 pub(crate) struct NewsRawQuery {
-    game_id: String,
     source_id: String,
     id: Option<String>,
     after_id: Option<String>,
@@ -94,11 +93,12 @@ pub(crate) struct UpdateNewsCharacterRequest {
 pub(crate) async fn list_raw(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     MultiQuery(query): MultiQuery<NewsRawQuery>,
 ) -> Result<Json<NewsRawPageResponse>, AppError> {
     tracing::debug!(
         actor = %actor.label(),
-        game_id = %query.game_id,
+        game_id = %game_id,
         source_id = %query.source_id,
         "listing raw news for maintenance"
     );
@@ -108,16 +108,19 @@ pub(crate) async fn list_raw(
             "id and after_id cannot be used together".into(),
         ));
     }
+    let source_id = normalized_source_id(&query.source_id)?;
+    let news_type = normalized_optional_news_type(query.news_type)?;
+    require_news_source(&state, &game_id, &source_id).await?;
 
     let limit = query.limit.unwrap_or(100).clamp(1, 100);
     let (total, items) = state
         .application()
         .list_news_raw(ListNewsRawFilter {
-            game_id: query.game_id,
-            source_id: query.source_id,
+            game_id,
+            source_id,
             news_id: query.id,
             after_id: query.after_id,
-            news_type: query.news_type,
+            news_type,
             tags: query
                 .tag
                 .into_iter()
@@ -160,23 +163,27 @@ impl From<akasha_application::news::NewsRawItem> for NewsRawItemResponse {
 pub(crate) async fn update_news(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<UpdateNewsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    let source_id = normalized_source_id(&body.source_id)?;
+    let news_type = normalized_news_type(&body.news_type)?;
+    require_news_source(&state, &game_id, &source_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
-    tracing::info!(actor = %actor.label(), news_id = %body.id, "updating news");
+    tracing::info!(actor = %actor.label(), game_id = %game_id, news_id = %body.id, "updating news");
     let result = state
         .application()
         .update_news(UpdateNewsCommand {
-            game_id: body.game_id,
-            source_id: body.source_id,
+            game_id,
+            source_id,
             id: body.id,
             title: body.title,
             intro: body.intro,
             publish_time: body.publish_time,
             source_url: body.source_url,
             cover: body.cover,
-            news_type: body.news_type,
+            news_type,
             video_url: body.video_url,
             video_duration_ms: body.video_duration_ms,
             tags: body.tags,
@@ -212,7 +219,6 @@ pub(crate) async fn update_news(
 /// 同步新闻来源标签目录的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct SyncTagsRequest {
-    game_id: String,
     source_id: String,
     tags: Vec<SyncNewsTagRequest>,
     audit: Option<AuditRequest>,
@@ -247,14 +253,17 @@ pub(crate) struct SyncNewsTagResponse {
 pub(crate) async fn sync_tags(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<SyncTagsRequest>,
 ) -> Result<Json<SyncTagsResponse>, AppError> {
+    let source_id = normalized_source_id(&body.source_id)?;
+    require_news_source(&state, &game_id, &source_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
     tracing::info!(
         actor = %actor.label(),
-        game_id = %body.game_id,
-        source_id = %body.source_id,
+        game_id = %game_id,
+        source_id = %source_id,
         tags = body.tags.len(),
         "syncing news tags"
     );
@@ -262,8 +271,8 @@ pub(crate) async fn sync_tags(
     let result = state
         .application()
         .sync_news_tags(SyncNewsTagsCommand {
-            game_id: body.game_id,
-            source_id: body.source_id,
+            game_id,
+            source_id,
             tags: body
                 .tags
                 .into_iter()
@@ -297,14 +306,17 @@ pub(crate) async fn sync_tags(
 pub(crate) async fn update_tags(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<UpdateNewsTagsRequest>,
 ) -> Result<StatusCode, AppError> {
+    let source_id = normalized_source_id(&body.source_id)?;
+    require_news_source(&state, &game_id, &source_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
     tracing::info!(
         actor = %actor.label(),
-        game_id = %body.game_id,
-        source_id = %body.source_id,
+        game_id = %game_id,
+        source_id = %source_id,
         updates = body.updates.len(),
         "updating news tags"
     );
@@ -312,8 +324,8 @@ pub(crate) async fn update_tags(
     state
         .application()
         .replace_news_tags(ReplaceNewsTagsCommand {
-            game_id: body.game_id,
-            source_id: body.source_id,
+            game_id,
+            source_id,
             updates: body
                 .updates
                 .into_iter()
@@ -332,7 +344,6 @@ pub(crate) async fn update_tags(
 /// 替换多个新闻标签集合的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsTagsRequest {
-    game_id: String,
     source_id: String,
     updates: Vec<UpdateNewsTagsItemRequest>,
     audit: Option<AuditRequest>,
@@ -348,7 +359,6 @@ pub(crate) struct UpdateNewsTagsItemRequest {
 /// 替换多个新闻角色集合的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsCharactersRequest {
-    game_id: String,
     source_id: String,
     updates: Vec<UpdateNewsCharactersItemRequest>,
     audit: Option<AuditRequest>,
@@ -365,14 +375,17 @@ pub(crate) struct UpdateNewsCharactersItemRequest {
 pub(crate) async fn update_characters(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<UpdateNewsCharactersRequest>,
 ) -> Result<StatusCode, AppError> {
+    let source_id = normalized_source_id(&body.source_id)?;
+    require_news_source(&state, &game_id, &source_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
     tracing::info!(
         actor = %actor.label(),
-        game_id = %body.game_id,
-        source_id = %body.source_id,
+        game_id = %game_id,
+        source_id = %source_id,
         updates = body.updates.len(),
         "updating news characters"
     );
@@ -380,8 +393,8 @@ pub(crate) async fn update_characters(
     state
         .application()
         .replace_news_characters(ReplaceNewsCharactersCommand {
-            game_id: body.game_id,
-            source_id: body.source_id,
+            game_id,
+            source_id,
             updates: body
                 .updates
                 .into_iter()
@@ -402,4 +415,29 @@ pub(crate) async fn update_characters(
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn normalized_source_id(value: &str) -> Result<String, AppError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(AppError::BadRequest(
+            "source_id must not be empty".to_owned(),
+        ));
+    }
+    Ok(value.to_owned())
+}
+
+fn normalized_news_type(value: &str) -> Result<String, AppError> {
+    let value = value.trim();
+    if matches!(value, "article" | "video") {
+        Ok(value.to_owned())
+    } else {
+        Err(AppError::BadRequest(
+            "news_type must be article or video".to_owned(),
+        ))
+    }
+}
+
+fn normalized_optional_news_type(value: Option<String>) -> Result<Option<String>, AppError> {
+    value.as_deref().map(normalized_news_type).transpose()
 }

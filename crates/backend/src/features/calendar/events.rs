@@ -14,7 +14,7 @@ use super::{china_timezone, endpoints::ics_escape};
 use crate::{
     http::{
         error::AppError,
-        path::GamePath,
+        path::{GamePath, require_game},
         response::{ErrorResponse, ListResponse, public_asset_url, utc_timestamp},
     },
     state::AppState,
@@ -64,6 +64,7 @@ pub(super) struct EventResponse {
     responses(
         (status = 200, body = ListResponse<EventResponse>),
         (status = 400, body = ErrorResponse),
+        (status = 404, body = ErrorResponse),
         (status = 500, body = ErrorResponse)
     )
 )]
@@ -126,13 +127,15 @@ async fn list_events(
     query: EventQuery,
 ) -> Result<Vec<EventResponse>, AppError> {
     let (start_time, end_time) = query.time_range()?;
+    let kinds = query.kinds()?;
+    require_game(state, game_id).await?;
     let rows = state
         .application()
         .list_calendar_events(ListCalendarEventsFilter {
             game_id: game_id.to_owned(),
             start_time,
             end_time,
-            kinds: query.kinds()?,
+            kinds,
             limit: EVENT_LIMIT,
         })
         .await?;

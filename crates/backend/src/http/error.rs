@@ -13,7 +13,6 @@ use crate::http::{rate_limit::RateLimitExceeded, response::ErrorResponse};
 pub enum AppError {
     BadRequest(String),
     Unauthorized(String),
-    Forbidden(String),
     Conflict(String),
     NotFound(String),
     TooManyRequests { retry_after_seconds: u64 },
@@ -29,7 +28,6 @@ impl IntoResponse for AppError {
                 (StatusCode::BAD_REQUEST, message, None)
             }
             AppError::Unauthorized(message) => (StatusCode::UNAUTHORIZED, message, None),
-            AppError::Forbidden(message) => (StatusCode::FORBIDDEN, message, None),
             AppError::Conflict(message) => (StatusCode::CONFLICT, message, None),
             AppError::NotFound(message) => (StatusCode::NOT_FOUND, message, None),
             AppError::TooManyRequests {

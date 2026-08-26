@@ -6,7 +6,7 @@ mod query;
 use axum::{
     Router,
     extract::DefaultBodyLimit,
-    routing::{get, post, put},
+    routing::{get, patch, put},
 };
 use utoipa_axum::router::OpenApiRouter;
 
@@ -31,23 +31,19 @@ pub(crate) fn admin_router() -> Router<AppState> {
         .merge(
             Router::new()
                 .route(
-                    "/game-data/{game_id}/{collection}/raw",
+                    "/games/{game_id}/data/{collection}/raw",
                     get(admin::list_raw),
                 )
                 .route(
-                    "/game-data/{game_id}/{collection}/update",
-                    post(admin::update_collection),
-                )
-                .route(
-                    "/game-data/{game_id}/{collection}/sync",
-                    post(admin::sync_collection),
+                    "/games/{game_id}/data/{collection}",
+                    patch(admin::update_collection).put(admin::sync_collection),
                 )
                 .layer(DefaultBodyLimit::max(GAME_DATA_SYNC_BODY_LIMIT_BYTES)),
         )
         .merge(
             Router::new()
                 .route(
-                    "/game-data/assets/{game_id}/{*path}",
+                    "/games/{game_id}/data/assets/{*path}",
                     put(admin::upload_asset),
                 )
                 .layer(DefaultBodyLimit::max(GAME_DATA_ASSET_BODY_LIMIT_BYTES)),

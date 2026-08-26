@@ -14,7 +14,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     http::{
         error::AppError,
-        path::GamePath,
+        path::{GamePath, require_game},
         response::{ErrorResponse, ListResponse, public_asset_url},
     },
     state::AppState,
@@ -54,6 +54,7 @@ pub(super) struct CharacterBirthdayResponse {
     responses(
         (status = 200, body = ListResponse<CharacterBirthdayResponse>),
         (status = 400, body = ErrorResponse),
+        (status = 404, body = ErrorResponse),
         (status = 500, body = ErrorResponse)
     )
 )]
@@ -116,6 +117,9 @@ async fn list_birthdays(
     game_id: &str,
     query: CharacterBirthdayQuery,
 ) -> Result<Vec<CharacterBirthdayResponse>, AppError> {
+    require_game(state, game_id).await?;
+    validate_calendar_game(game_id)?;
+
     if let Some(month) = query.birthday_month
         && !(1..=12).contains(&month)
     {
@@ -243,12 +247,22 @@ async fn list_birthdays(
             })
             .collect(),
         _ => {
-            return Err(AppError::BadRequest(
-                "character calendar only supports ys, sr and zzz".to_owned(),
-            ));
+            return Err(AppError::NotFound(format!(
+                "character calendar is not available for game {game_id}"
+            )));
         }
     };
     Ok(items)
+}
+
+fn validate_calendar_game(game_id: &str) -> Result<(), AppError> {
+    if matches!(game_id, "ys" | "sr" | "zzz") {
+        Ok(())
+    } else {
+        Err(AppError::NotFound(format!(
+            "character calendar is not available for game {game_id}"
+        )))
+    }
 }
 
 fn birthday(
@@ -365,6 +379,15 @@ mod tests {
         assert!(calendar.contains("RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1\r\n"));
         assert!(calendar.contains("NAME;LANGUAGE=zh-CN:原神角色生日\r\n"));
         assert!(calendar.contains("X-WR-CALNAME:原神角色生日\r\n"));
+    }
+
+    #[test]
+    fn rejects_unsupported_calendar_games_as_not_found() {
+        assert!(matches!(
+            validate_calendar_game("planet"),
+            Err(AppError::NotFound(message)) if message == "character calendar is not available for game planet"
+        ));
+        assert!(validate_calendar_game("ys").is_ok());
     }
 
     #[test]

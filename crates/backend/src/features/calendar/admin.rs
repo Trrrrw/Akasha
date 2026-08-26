@@ -13,6 +13,7 @@ use crate::{
     http::{
         error::AppError,
         extractors::{AuditRequest, DataWriteActor},
+        path::require_game,
         response::utc_timestamp,
     },
     state::AppState,
@@ -87,6 +88,7 @@ pub(crate) async fn list_versions(
     State(state): State<AppState>,
     Path(game_id): Path<String>,
 ) -> Result<Json<Vec<GameVersionResponse>>, AppError> {
+    require_game(&state, &game_id).await?;
     tracing::debug!(actor = %actor.label(), game_id, "listing game versions for worker");
     let items = state
         .application()
@@ -116,6 +118,7 @@ pub(crate) async fn sync_calendar(
     Json(body): Json<SyncCalendarRequest>,
 ) -> Result<Json<SyncCalendarResponse>, AppError> {
     validate_request(&body)?;
+    require_game(&state, &game_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
     let result = state
         .application()

@@ -56,28 +56,6 @@ fn escaped_contains_pattern(value: &str) -> String {
     escaped
 }
 
-/// 数据库中保存的用户组
-#[derive(Debug, Clone, PartialEq, Eq, DeriveActiveEnum, EnumIter)]
-#[sea_orm(
-    rs_type = "String",
-    db_type = "String(StringLen::None)",
-    rename_all = "lowercase"
-)]
-pub enum UserGroup {
-    Admin,
-    User,
-}
-
-impl UserGroup {
-    /// 返回用户组稳定的数据库字符串值
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            UserGroup::Admin => "admin",
-            UserGroup::User => "user",
-        }
-    }
-}
-
 /// 审计日志中记录的操作主体类型
 #[derive(Debug, Clone, PartialEq, Eq, DeriveActiveEnum, EnumIter)]
 #[sea_orm(
