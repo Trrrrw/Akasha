@@ -9,7 +9,9 @@ use crate::{http::error::AppError, state::AppState};
 
 use super::{
     endpoints,
-    query::{NewsDetailPath, NewsEpisodeNfoQuery, NewsSeriesEpisodePath, NewsSeriesPath, NewsSourceQuery},
+    query::{
+        NewsDetailPath, NewsEpisodeNfoQuery, NewsSeriesEpisodePath, NewsSeriesPath, NewsSourceQuery,
+    },
 };
 
 #[utoipa::path(
