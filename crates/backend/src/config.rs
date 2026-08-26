@@ -26,45 +26,12 @@ pub struct Config {
     pub mys_cookie: Option<String>,
     /// 数据库连接配置
     pub database: DbOptions,
-    /// 应用 token 配置
-    pub auth: AuthConfig,
-    /// GitHub OAuth 配置
-    pub github: GithubConfig,
-    /// 数据 worker 认证配置
-    pub worker: WorkerConfig,
+    /// 受保护数据写入接口使用的 bearer token
+    pub data_write_token: String,
     /// 新闻公开接口限流配置
     pub public_rate_limits: PublicRateLimitConfig,
     /// 审计日志保留天数
     pub audit_log_retention_days: u32,
-}
-
-/// 用于签发和验证应用 token 的密钥
-#[derive(Clone)]
-pub struct AuthConfig {
-    /// access token 的 HMAC 密钥
-    pub jwt_secret: String,
-    /// refresh token 等敏感值的哈希密钥
-    pub token_hash_secret: String,
-}
-
-/// GitHub OAuth 客户端配置
-#[derive(Clone)]
-pub struct GithubConfig {
-    /// GitHub OAuth 应用客户端 ID
-    pub client_id: String,
-    /// GitHub OAuth 应用客户端密钥
-    pub client_secret: String,
-    /// GitHub 登录完成后的回调地址
-    pub redirect_url: String,
-    /// 自动授予管理员权限的 GitHub 用户 ID
-    pub admin_github_id: Option<u64>,
-}
-
-/// 受信任数据 worker 使用的凭据
-#[derive(Clone)]
-pub struct WorkerConfig {
-    /// worker 调用内部写入接口时使用的 bearer token
-    pub token: String,
 }
 
 /// 新闻视频和 RSS 接口的客户端限流及上游刷新预算
@@ -90,9 +57,7 @@ pub struct PublicRateLimitConfig {
 struct FileConfig {
     server: FileServerConfig,
     database: FileDatabaseConfig,
-    auth: FileAuthConfig,
-    github: FileGithubConfig,
-    worker: FileWorkerConfig,
+    security: FileSecurityConfig,
     mys: FileMysConfig,
     rate_limits: FileRateLimitConfig,
     audit: FileAuditConfig,
@@ -115,24 +80,8 @@ struct FileDatabaseConfig {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
-struct FileAuthConfig {
-    jwt_secret: Option<String>,
-    token_hash_secret: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-struct FileGithubConfig {
-    client_id: Option<String>,
-    client_secret: Option<String>,
-    redirect_url: Option<String>,
-    admin_github_id: Option<u64>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-struct FileWorkerConfig {
-    token: Option<String>,
+struct FileSecurityConfig {
+    data_write_token: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -196,7 +145,6 @@ impl Config {
             )
             .parse()
             .context("BIND_ADDR must be a socket address")?,
-
             asset_base_url: required_value(
                 "ASSET_BASE_URL",
                 file.server.asset_base_url.as_deref(),
@@ -209,7 +157,6 @@ impl Config {
                 "data/game-assets",
             )),
             mys_cookie: optional_value("MIYOUSHE_COOKIE", file.mys.cookie.as_deref()),
-
             database: DbOptions {
                 sqlite_path: string_value(
                     "SQLITE_PATH",
@@ -217,32 +164,10 @@ impl Config {
                     "data/akasha.sqlite",
                 ),
             },
-
-            auth: AuthConfig {
-                jwt_secret: required_secret("JWT_SECRET", file.auth.jwt_secret.as_deref())?,
-                token_hash_secret: required_secret(
-                    "TOKEN_HASH_SECRET",
-                    file.auth.token_hash_secret.as_deref(),
-                )?,
-            },
-
-            github: GithubConfig {
-                client_id: required_value("GITHUB_CLIENT_ID", file.github.client_id.as_deref())?,
-                client_secret: required_value(
-                    "GITHUB_CLIENT_SECRET",
-                    file.github.client_secret.as_deref(),
-                )?,
-                redirect_url: required_value(
-                    "GITHUB_OAUTH_REDIRECT_URL",
-                    file.github.redirect_url.as_deref(),
-                )?,
-                admin_github_id: optional_u64("ADMIN_GITHUB_ID", file.github.admin_github_id)?,
-            },
-
-            worker: WorkerConfig {
-                token: required_secret("WORKER_TOKEN", file.worker.token.as_deref())?,
-            },
-
+            data_write_token: required_secret(
+                "DATA_WRITE_TOKEN",
+                file.security.data_write_token.as_deref(),
+            )?,
             public_rate_limits: PublicRateLimitConfig {
                 trusted_proxy_ips: ip_address_list(
                     "RATE_LIMIT_TRUSTED_PROXY_IPS",
@@ -274,20 +199,12 @@ impl Config {
                     10,
                 )?,
             },
-
             audit_log_retention_days: positive_u32(
                 "AUDIT_LOG_RETENTION_DAYS",
                 file.audit.retention_days,
                 180,
             )?,
         })
-    }
-}
-
-impl GithubConfig {
-    /// 判断浏览器认证 Cookie 是否只应通过 HTTPS 发送
-    pub fn uses_secure_cookies(&self) -> bool {
-        self.redirect_url.starts_with("https://")
     }
 }
 
@@ -313,7 +230,7 @@ fn required_value(key: &str, file_value: Option<&str>) -> Result<String> {
         .ok_or_else(|| anyhow!("missing required configuration value {key}"))
 }
 
-/// 读取至少包含 32 字节的认证密钥
+/// 读取至少包含 32 字节的敏感凭据
 fn required_secret(key: &str, file_value: Option<&str>) -> Result<String> {
     const MIN_SECRET_LENGTH: usize = 32;
 
@@ -334,18 +251,6 @@ fn optional_value(key: &str, file_value: Option<&str>) -> Option<String> {
                 .filter(|value| !value.trim().is_empty())
                 .map(ToOwned::to_owned)
         })
-}
-
-/// 读取可选的管理员用户 ID
-fn optional_u64(key: &str, file_value: Option<u64>) -> Result<Option<u64>> {
-    let Some(value) = env::var(key).ok().filter(|value| !value.trim().is_empty()) else {
-        return Ok(file_value);
-    };
-
-    value
-        .parse::<u64>()
-        .map(Some)
-        .with_context(|| format!("{key} must be an unsigned integer"))
 }
 
 /// 读取大于零的 u32 配置并提供明确错误上下文
