@@ -11,7 +11,6 @@ use crate::{Config, http::rate_limit::PublicRateLimiters, maintenance, mys::MysV
 pub struct AppState {
     config: Arc<Config>,
     application: ApplicationServices<Db>,
-    http_client: reqwest::Client,
     mys_video_service: MysVideoService,
     public_rate_limiters: PublicRateLimiters,
 }
@@ -27,14 +26,12 @@ impl AppState {
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .build()?;
-        let mys_video_service =
-            MysVideoService::new(http_client.clone(), config.mys_cookie.as_deref())?;
+        let mys_video_service = MysVideoService::new(http_client, config.mys_cookie.as_deref())?;
         let public_rate_limiters = PublicRateLimiters::new(&config.public_rate_limits);
 
         Ok(Self {
             config: Arc::new(config),
             application,
-            http_client,
             mys_video_service,
             public_rate_limiters,
         })
@@ -48,11 +45,6 @@ impl AppState {
     /// 返回 HTTP handler 和请求提取器使用的应用服务
     pub fn application(&self) -> &ApplicationServices<Db> {
         &self.application
-    }
-
-    /// 返回外部 API 集成共用的 HTTP 客户端
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.http_client
     }
 
     /// 返回米游社视频播放地址服务
