@@ -4,7 +4,7 @@ use akasha_application::news::{
 };
 use axum::{
     Json,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
@@ -18,6 +18,7 @@ use crate::{
     http::{
         error::AppError,
         extractors::{AuditRequest, DataWriteActor},
+        path::GamePath,
         response::utc_timestamp,
     },
     state::AppState,
@@ -26,7 +27,6 @@ use crate::{
 /// 创建或更新新闻的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsRequest {
-    game_id: String,
     source_id: String,
     id: String,
     title: String,
@@ -48,7 +48,6 @@ pub(crate) struct UpdateNewsRequest {
 /// 读取维护任务所需原始新闻的管理查询参数
 #[derive(Deserialize)]
 pub(crate) struct NewsRawQuery {
-    game_id: String,
     source_id: String,
     id: Option<String>,
     after_id: Option<String>,
@@ -94,11 +93,12 @@ pub(crate) struct UpdateNewsCharacterRequest {
 pub(crate) async fn list_raw(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     MultiQuery(query): MultiQuery<NewsRawQuery>,
 ) -> Result<Json<NewsRawPageResponse>, AppError> {
     tracing::debug!(
         actor = %actor.label(),
-        game_id = %query.game_id,
+        game_id = %game_id,
         source_id = %query.source_id,
         "listing raw news for maintenance"
     );
@@ -113,7 +113,7 @@ pub(crate) async fn list_raw(
     let (total, items) = state
         .application()
         .list_news_raw(ListNewsRawFilter {
-            game_id: query.game_id,
+            game_id,
             source_id: query.source_id,
             news_id: query.id,
             after_id: query.after_id,
@@ -160,15 +160,16 @@ impl From<akasha_application::news::NewsRawItem> for NewsRawItemResponse {
 pub(crate) async fn update_news(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<UpdateNewsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
-    tracing::info!(actor = %actor.label(), news_id = %body.id, "updating news");
+    tracing::info!(actor = %actor.label(), game_id = %game_id, news_id = %body.id, "updating news");
     let result = state
         .application()
         .update_news(UpdateNewsCommand {
-            game_id: body.game_id,
+            game_id,
             source_id: body.source_id,
             id: body.id,
             title: body.title,
@@ -212,7 +213,6 @@ pub(crate) async fn update_news(
 /// 同步新闻来源标签目录的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct SyncTagsRequest {
-    game_id: String,
     source_id: String,
     tags: Vec<SyncNewsTagRequest>,
     audit: Option<AuditRequest>,
@@ -247,13 +247,14 @@ pub(crate) struct SyncNewsTagResponse {
 pub(crate) async fn sync_tags(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<SyncTagsRequest>,
 ) -> Result<Json<SyncTagsResponse>, AppError> {
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
     tracing::info!(
         actor = %actor.label(),
-        game_id = %body.game_id,
+        game_id = %game_id,
         source_id = %body.source_id,
         tags = body.tags.len(),
         "syncing news tags"
@@ -262,7 +263,7 @@ pub(crate) async fn sync_tags(
     let result = state
         .application()
         .sync_news_tags(SyncNewsTagsCommand {
-            game_id: body.game_id,
+            game_id,
             source_id: body.source_id,
             tags: body
                 .tags
@@ -297,13 +298,14 @@ pub(crate) async fn sync_tags(
 pub(crate) async fn update_tags(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<UpdateNewsTagsRequest>,
 ) -> Result<StatusCode, AppError> {
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
     tracing::info!(
         actor = %actor.label(),
-        game_id = %body.game_id,
+        game_id = %game_id,
         source_id = %body.source_id,
         updates = body.updates.len(),
         "updating news tags"
@@ -312,7 +314,7 @@ pub(crate) async fn update_tags(
     state
         .application()
         .replace_news_tags(ReplaceNewsTagsCommand {
-            game_id: body.game_id,
+            game_id,
             source_id: body.source_id,
             updates: body
                 .updates
@@ -332,7 +334,6 @@ pub(crate) async fn update_tags(
 /// 替换多个新闻标签集合的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsTagsRequest {
-    game_id: String,
     source_id: String,
     updates: Vec<UpdateNewsTagsItemRequest>,
     audit: Option<AuditRequest>,
@@ -348,7 +349,6 @@ pub(crate) struct UpdateNewsTagsItemRequest {
 /// 替换多个新闻角色集合的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsCharactersRequest {
-    game_id: String,
     source_id: String,
     updates: Vec<UpdateNewsCharactersItemRequest>,
     audit: Option<AuditRequest>,
@@ -365,13 +365,14 @@ pub(crate) struct UpdateNewsCharactersItemRequest {
 pub(crate) async fn update_characters(
     actor: DataWriteActor,
     State(state): State<AppState>,
+    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<UpdateNewsCharactersRequest>,
 ) -> Result<StatusCode, AppError> {
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
     tracing::info!(
         actor = %actor.label(),
-        game_id = %body.game_id,
+        game_id = %game_id,
         source_id = %body.source_id,
         updates = body.updates.len(),
         "updating news characters"
@@ -380,7 +381,7 @@ pub(crate) async fn update_characters(
     state
         .application()
         .replace_news_characters(ReplaceNewsCharactersCommand {
-            game_id: body.game_id,
+            game_id,
             source_id: body.source_id,
             updates: body
                 .updates
