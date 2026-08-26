@@ -1,6 +1,7 @@
 pub(crate) mod admin;
 pub(crate) mod dto;
 pub(crate) mod endpoints;
+mod media;
 mod nfo;
 mod query;
 mod rss;
@@ -14,7 +15,7 @@ use utoipa_axum::router::OpenApiRouter;
 
 use crate::state::AppState;
 
-/// 构建公开新闻查询和 RSS 路由
+/// 构建公开新闻查询、媒体和 RSS 路由
 pub(crate) fn public_router() -> OpenApiRouter<AppState> {
     use utoipa_axum::routes;
 
@@ -23,21 +24,24 @@ pub(crate) fn public_router() -> OpenApiRouter<AppState> {
         .routes(routes!(endpoints::list_tags))
         .routes(routes!(endpoints::list))
         .routes(routes!(endpoints::detail))
-        .routes(routes!(endpoints::download_movie_nfo))
-        .routes(routes!(endpoints::download_series_nfo))
-        .routes(routes!(endpoints::download_episode_nfo))
-        .routes(routes!(endpoints::video))
+        .routes(routes!(media::movie_nfo))
+        .routes(routes!(media::series_nfo))
+        .routes(routes!(media::episode_nfo))
+        .routes(routes!(media::video))
         .routes(routes!(endpoints::rss))
 }
 
 /// 构建受信任新闻同步路由
 pub(crate) fn admin_router() -> Router<AppState> {
     Router::new()
-        .route("/news/update", post(admin::update_news))
-        .route("/news/raw", get(admin::list_raw))
-        .route("/news/tags/sync", post(admin::sync_tags))
-        .route("/news/tags/update", post(admin::update_tags))
-        .route("/news/characters/update", post(admin::update_characters))
+        .route("/games/{game_id}/news", post(admin::update_news))
+        .route("/games/{game_id}/news/raw", get(admin::list_raw))
+        .route("/games/{game_id}/news/tags", post(admin::sync_tags))
+        .route("/games/{game_id}/news/tags/relations", post(admin::update_tags))
+        .route(
+            "/games/{game_id}/news/characters/relations",
+            post(admin::update_characters),
+        )
 }
 
 /// 返回 NFO 本地日期计算使用的中国标准时区
