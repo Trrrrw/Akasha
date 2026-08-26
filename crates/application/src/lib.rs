@@ -6,7 +6,6 @@ mod error;
 mod repository;
 
 pub mod audit;
-pub mod auth;
 pub mod calendar;
 pub mod characters;
 pub mod game_data;
