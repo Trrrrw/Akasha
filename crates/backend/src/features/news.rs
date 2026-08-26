@@ -37,7 +37,10 @@ pub(crate) fn admin_router() -> Router<AppState> {
         .route("/games/{game_id}/news", post(admin::update_news))
         .route("/games/{game_id}/news/raw", get(admin::list_raw))
         .route("/games/{game_id}/news/tags", post(admin::sync_tags))
-        .route("/games/{game_id}/news/tags/relations", post(admin::update_tags))
+        .route(
+            "/games/{game_id}/news/tags/relations",
+            post(admin::update_tags),
+        )
         .route(
             "/games/{game_id}/news/characters/relations",
             post(admin::update_characters),
