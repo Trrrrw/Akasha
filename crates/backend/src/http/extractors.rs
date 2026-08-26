@@ -1,7 +1,7 @@
 use akasha_application::audit::{AuditActorType, AuditContext};
 use axum::{
     extract::{ConnectInfo, FromRequestParts},
-    http::{header, request::Parts, HeaderMap},
+    http::{HeaderMap, header, request::Parts},
 };
 use hmac::{Hmac, KeyInit, Mac};
 use serde::Deserialize;
@@ -35,7 +35,10 @@ impl DataWriteActor {
     pub(crate) fn audit_context(&self, request: AuditRequest, headers: &HeaderMap) -> AuditContext {
         AuditContext {
             actor_type: AuditActorType::Worker,
-            actor_id: request.worker_id.clone().or_else(|| Some("data-writer".to_owned())),
+            actor_id: request
+                .worker_id
+                .clone()
+                .or_else(|| Some("data-writer".to_owned())),
             operation: request.operation.unwrap_or_else(|| "sync".to_owned()),
             request_id: headers
                 .get("x-request-id")
