@@ -46,7 +46,7 @@ pub(super) struct GameDataDetailPath {
     params(crate::http::path::GamePath),
     responses(
         (status = 200, body = ListResponse<GameDataCollectionResponse>),
-        (status = 400, body = ErrorResponse),
+        (status = 404, body = ErrorResponse),
         (status = 500, body = ErrorResponse)
     )
 )]
@@ -78,6 +78,7 @@ pub(super) async fn collections(
     responses(
         (status = 200, body = PageResponse<GameDataEntryResponse>),
         (status = 400, body = ErrorResponse),
+        (status = 404, body = ErrorResponse),
         (status = 500, body = ErrorResponse)
     )
 )]
@@ -147,9 +148,9 @@ pub(super) fn validate_game(game_id: &str) -> Result<(), AppError> {
     if matches!(game_id, "ys" | "sr" | "zzz") {
         Ok(())
     } else {
-        Err(AppError::BadRequest(
-            "game data only supports ys, sr and zzz".to_owned(),
-        ))
+        Err(AppError::NotFound(format!(
+            "game data is not available for game {game_id}"
+        )))
     }
 }
 
