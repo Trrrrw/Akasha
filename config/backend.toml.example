@@ -10,19 +10,8 @@ game_data_asset_dir = "data/game-assets"
 [database]
 path = "data/akasha.sqlite"
 
-[auth]
-jwt_secret = ""
-token_hash_secret = ""
-
-[github]
-client_id = ""
-client_secret = ""
-redirect_url = ""
-# 可选：填写后自动授予对应 GitHub 用户管理员权限
-# admin_github_id = 123456
-
-[worker]
-token = ""
+[security]
+data_write_token = ""
 
 [mys]
 # 未配置时仅禁用米游社视频签名刷新
