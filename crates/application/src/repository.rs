@@ -4,7 +4,6 @@ use chrono::{DateTime, FixedOffset};
 
 use crate::{
     RepositoryResult,
-    auth::{AuthUser, CurrentUser, GithubUserProfile, RefreshTokenMetadata},
     calendar::{
         CalendarEvent, GameVersion, ListCalendarEventsFilter, SyncCalendarCommand,
         SyncCalendarResult,
@@ -207,40 +206,6 @@ pub trait ApplicationRepository: Send + Sync {
         &self,
         command: ReplaceNewsCharactersCommand,
     ) -> impl Future<Output = RepositoryResult<()>> + Send;
-
-    /// 创建或更新 GitHub 账号关联的本地用户
-    fn upsert_github_user(
-        &self,
-        profile: GithubUserProfile,
-    ) -> impl Future<Output = RepositoryResult<AuthUser>> + Send;
-
-    /// 为用户保存一个 refresh token 哈希
-    fn save_refresh_token(
-        &self,
-        user_id: uuid::Uuid,
-        refresh_token_hash: String,
-        metadata: RefreshTokenMetadata,
-    ) -> impl Future<Output = RepositoryResult<()>> + Send;
-
-    /// 替换有效 refresh token 并返回其用户
-    fn rotate_refresh_token(
-        &self,
-        old_refresh_token_hash: String,
-        new_refresh_token_hash: String,
-        metadata: RefreshTokenMetadata,
-    ) -> impl Future<Output = RepositoryResult<AuthUser>> + Send;
-
-    /// 吊销存在的 refresh token
-    fn revoke_refresh_token(
-        &self,
-        refresh_token_hash: String,
-    ) -> impl Future<Output = RepositoryResult<()>> + Send;
-
-    /// 查找 access token subject 代表的活跃用户
-    fn find_current_user(
-        &self,
-        user_id: uuid::Uuid,
-    ) -> impl Future<Output = RepositoryResult<Option<CurrentUser>>> + Send;
 
     /// 在当前状态允许时获取 worker 租约
     fn acquire_worker(
