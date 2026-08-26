@@ -68,11 +68,9 @@ mod tests {
         let paths = document["paths"].as_object().expect("应包含 paths");
 
         assert!(paths.contains_key("/api/v1/games/{game_id}/news/series/{tag_name}/media/nfo"));
-        assert!(
-            paths.contains_key(
-                "/api/v1/games/{game_id}/news/series/{tag_name}/episodes/{news_id}/media/nfo"
-            )
-        );
+        assert!(paths.contains_key(
+            "/api/v1/games/{game_id}/news/series/{tag_name}/episodes/{news_id}/media/nfo"
+        ));
         assert!(paths.contains_key("/api/v1/games/{game_id}/data/{collection}"));
         assert!(!paths.keys().any(|path| path.ends_with("/data/character")));
         assert!(!paths.contains_key("/api/v1/games/ys/characters"));
