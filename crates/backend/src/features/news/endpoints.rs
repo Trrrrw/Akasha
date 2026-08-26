@@ -23,7 +23,7 @@ use crate::{
     },
     http::{
         error::AppError,
-        path::GamePath,
+        path::{GamePath, require_game, require_news_source},
         response::{ListResponse, PageResponse},
     },
     mys::MysVideoUrlResolution,
@@ -39,6 +39,7 @@ use crate::{
     params(GamePath),
     responses(
         (status = 200, body = ListResponse<NewsSourceResponse>),
+        (status = 404, body = crate::http::response::ErrorResponse),
         (status = 500, body = crate::http::response::ErrorResponse)
     )
 )]
@@ -47,6 +48,7 @@ pub(super) async fn list_sources(
     State(state): State<AppState>,
     Path(GamePath { game_id }): Path<GamePath>,
 ) -> Result<Json<ListResponse<NewsSourceResponse>>, AppError> {
+    require_game(&state, &game_id).await?;
     let rows = state.application().list_news_sources(&game_id).await?;
 
     let items = rows
@@ -69,6 +71,7 @@ pub(super) async fn list_sources(
     params(GamePath, NewsSourceQuery),
     responses(
         (status = 200, body = NewsTagsResponse),
+        (status = 404, body = crate::http::response::ErrorResponse),
         (status = 500, body = crate::http::response::ErrorResponse)
     )
 )]
@@ -79,6 +82,7 @@ pub(super) async fn list_tags(
     Query(query): Query<NewsSourceQuery>,
 ) -> Result<Json<NewsTagsResponse>, AppError> {
     let source = query.into_source()?;
+    require_news_source(&state, &game_id, &source).await?;
     let result = state
         .application()
         .list_news_tags(&game_id, &source)
@@ -103,6 +107,7 @@ pub(super) async fn list_tags(
     responses(
         (status = 200, body = PageResponse<NewsItemResponse, NewsListMeta>),
         (status = 400, body = crate::http::response::ErrorResponse),
+        (status = 404, body = crate::http::response::ErrorResponse),
         (status = 500, body = crate::http::response::ErrorResponse)
     )
 )]
@@ -116,6 +121,7 @@ pub(super) async fn list(
     let filter = page_query.apply(filter_query.into_filter(path)?)?;
     let source_id = filter.filter.source_id.clone();
     let game_id = filter.filter.game_id.clone();
+    require_news_source(&state, &game_id, &source_id).await?;
     let limit = filter.limit;
     let offset = filter.offset;
 
@@ -183,19 +189,6 @@ pub(super) async fn detail(
     )))
 }
 
-#[utoipa::path(
-    get,
-    path = "/games/{game_id}/news/{news_id}/nfo",
-    tag = "News",
-    summary = "下载独立视频 NFO",
-    description = "将一条视频新闻作为独立电影导出为 Kodi 和 Jellyfin Movie NFO",
-    params(NewsDetailPath, NewsSourceQuery),
-    responses(
-        (status = 200, description = "视频新闻 NFO XML", content_type = "application/xml"),
-        (status = 404, body = crate::http::response::ErrorResponse),
-        (status = 500, body = crate::http::response::ErrorResponse)
-    )
-)]
 /// 生成并下载一条独立视频新闻的 Movie NFO 文件
 pub(super) async fn download_movie_nfo(
     State(state): State<AppState>,
@@ -218,19 +211,6 @@ pub(super) async fn download_movie_nfo(
     nfo_file_response(document)
 }
 
-#[utoipa::path(
-    get,
-    path = "/games/{game_id}/news/series/{tag_name}/nfo",
-    tag = "News",
-    summary = "下载标签剧集 NFO",
-    description = "将至少包含一条视频的新闻标签导出为 tvshow.nfo，供前端交给 Aria2 下载",
-    params(NewsSeriesPath, NewsSourceQuery),
-    responses(
-        (status = 200, description = "标签剧集 TV Show NFO", content_type = "application/xml"),
-        (status = 404, body = crate::http::response::ErrorResponse),
-        (status = 500, body = crate::http::response::ErrorResponse)
-    )
-)]
 /// 生成并下载一个新闻标签的 TV Show NFO 文件
 pub(super) async fn download_series_nfo(
     State(state): State<AppState>,
@@ -253,20 +233,6 @@ pub(super) async fn download_series_nfo(
     nfo_file_response(document)
 }
 
-#[utoipa::path(
-    get,
-    path = "/games/{game_id}/news/series/{tag_name}/episodes/{news_id}/nfo",
-    tag = "News",
-    summary = "下载视频单集 NFO",
-    description = "将标签内的视频导出为 episodedetails NFO，季集编号应与前端生成的 SxxExx 文件名一致",
-    params(NewsSeriesEpisodePath, NewsEpisodeNfoQuery),
-    responses(
-        (status = 200, description = "视频新闻 Episode NFO", content_type = "application/xml"),
-        (status = 400, body = crate::http::response::ErrorResponse),
-        (status = 404, body = crate::http::response::ErrorResponse),
-        (status = 500, body = crate::http::response::ErrorResponse)
-    )
-)]
 /// 生成并下载标签内一条视频新闻的 Episode NFO 文件
 pub(super) async fn download_episode_nfo(
     State(state): State<AppState>,
@@ -304,24 +270,6 @@ pub(super) async fn download_episode_nfo(
     nfo_file_response(document)
 }
 
-#[utoipa::path(
-    get,
-    path = "/games/{game_id}/news/{news_id}/video",
-    tag = "News",
-    summary = "获取新闻视频播放地址",
-    description = "返回当前有效的视频播放地址，米游社地址会按新闻单独刷新签名；请求按客户端 IP 限流",
-    params(NewsDetailPath, NewsSourceQuery),
-    responses(
-        (status = 200, body = NewsVideoResponse),
-        (
-            status = 429,
-            body = crate::http::response::ErrorResponse,
-            headers(("Retry-After" = u64, description = "建议等待秒数"))
-        ),
-        (status = 404, body = crate::http::response::ErrorResponse),
-        (status = 500, body = crate::http::response::ErrorResponse)
-    )
-)]
 /// 按新闻 ID 获取当前有效的视频播放地址
 pub(super) async fn video(
     State(state): State<AppState>,
@@ -370,6 +318,7 @@ pub(super) async fn video(
             body = crate::http::response::ErrorResponse,
             headers(("Retry-After" = u64, description = "建议等待秒数"))
         ),
+        (status = 404, body = crate::http::response::ErrorResponse),
         (status = 500, body = crate::http::response::ErrorResponse)
     )
 )]
@@ -391,6 +340,7 @@ pub(super) async fn rss(
     let filter = rss_query.apply(filter_query.into_filter(path)?);
     let source_id = filter.filter.source_id.clone();
     let game_id = filter.filter.game_id.clone();
+    require_news_source(&state, &game_id, &source_id).await?;
 
     let result = state.application().list_news_feed(filter).await?;
     let mut items = result.items;

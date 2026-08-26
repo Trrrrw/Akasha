@@ -18,6 +18,7 @@ use crate::{
     http::{
         error::AppError,
         extractors::{AuditRequest, DataWriteActor},
+        path::require_game,
     },
     state::AppState,
 };
@@ -86,6 +87,7 @@ pub(crate) async fn sync_collection(
     Json(body): Json<SyncGameDataCollectionRequest>,
 ) -> Result<Json<SyncGameDataCollectionResponse>, AppError> {
     validate_game(&game_id)?;
+    require_game(&state, &game_id).await?;
     validate_collection(&collection)?;
     if collection == "character" && body.items.is_empty() {
         return Err(AppError::BadRequest(
@@ -136,6 +138,7 @@ pub(crate) async fn list_raw(
     Query(query): Query<GameDataRawQuery>,
 ) -> Result<Json<GameDataRawPageResponse>, AppError> {
     validate_game(&game_id)?;
+    require_game(&state, &game_id).await?;
     validate_collection(&collection)?;
     let limit = query.limit.unwrap_or(500).clamp(1, 1_000);
     tracing::debug!(actor = %actor.label(), game_id, collection, "listing raw game data");
@@ -174,6 +177,7 @@ pub(crate) async fn update_collection(
     Json(body): Json<UpdateGameDataCollectionRequest>,
 ) -> Result<Json<SyncGameDataCollectionResponse>, AppError> {
     validate_game(&game_id)?;
+    require_game(&state, &game_id).await?;
     validate_collection(&collection)?;
     validate_entries(&body.items)?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
@@ -211,6 +215,7 @@ pub(crate) async fn upload_asset(
     body: Bytes,
 ) -> Result<StatusCode, AppError> {
     validate_game(&game_id)?;
+    require_game(&state, &game_id).await?;
     let relative = safe_asset_path(&path)?;
     let root = state.config().game_data_asset_dir.join(&game_id);
     let target = root.join(relative);

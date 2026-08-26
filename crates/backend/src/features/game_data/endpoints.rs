@@ -12,6 +12,7 @@ use crate::{
     },
     http::{
         error::AppError,
+        path::{require_game, require_game_data_collection},
         response::{ErrorResponse, ListResponse, PageResponse},
     },
     state::AppState,
@@ -55,6 +56,7 @@ pub(super) async fn collections(
     State(state): State<AppState>,
 ) -> Result<Json<ListResponse<GameDataCollectionResponse>>, AppError> {
     validate_game(&game_id)?;
+    require_game(&state, &game_id).await?;
     let items: Vec<GameDataCollectionResponse> = state
         .application()
         .list_game_data_collections(&game_id)
@@ -92,6 +94,7 @@ pub(super) async fn list(
 ) -> Result<Json<PageResponse<GameDataEntryResponse>>, AppError> {
     validate_game(&game_id)?;
     validate_collection(&collection)?;
+    require_game_data_collection(&state, &game_id, &collection).await?;
     let filter = query.into_filter(game_id, collection)?;
     let limit = filter.limit;
     let offset = filter.offset;
@@ -133,6 +136,7 @@ pub(super) async fn detail(
 ) -> Result<Json<GameDataDetailResponse>, AppError> {
     validate_game(&game_id)?;
     validate_collection(&collection)?;
+    require_game(&state, &game_id).await?;
     let item = state
         .application()
         .find_game_data(&game_id, &collection, &id)
