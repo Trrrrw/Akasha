@@ -298,7 +298,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{entities::games, repositories};
+    use crate::{
+        entities::{games, news_sources},
+        repositories,
+    };
 
     fn audit_context() -> AuditContext {
         AuditContext {
@@ -391,7 +394,25 @@ mod tests {
             .count(db.conn())
             .await
             .expect("seeded games should be queryable");
-        assert_eq!(game_count, 7);
+        assert_eq!(game_count, 8);
+
+        let nodusfall = games::Entity::find_by_id("nodusfall")
+            .one(db.conn())
+            .await
+            .expect("Nodusfall seed should be queryable")
+            .expect("Nodusfall game should be seeded");
+        assert_eq!(nodusfall.name_en, "Nodusfall");
+        assert_eq!(nodusfall.name_zh, "源初之结");
+        assert_eq!(nodusfall.index, 8);
+
+        let source =
+            news_sources::Entity::find_by_id(("web_cn".to_owned(), "nodusfall".to_owned()))
+                .one(db.conn())
+                .await
+                .expect("Nodusfall web source seed should be queryable")
+                .expect("Nodusfall web source should be seeded");
+        assert_eq!(source.name, "官方网站");
+        assert_eq!(source.index, 1);
     }
 
     #[tokio::test]

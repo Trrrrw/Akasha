@@ -59,6 +59,14 @@ const GAME_SEEDS: &[GameSeed] = &[
         cover: Some("/assets/games/hna/cover.avif"),
         icon: Some("/assets/games/hna/icon.avif"),
     },
+    GameSeed {
+        id: "nodusfall",
+        name_en: "Nodusfall",
+        name_zh: "源初之结",
+        index: 8,
+        cover: Some("/assets/games/nodusfall/cover.avif"),
+        icon: Some("/assets/games/nodusfall/icon.avif"),
+    },
 ];
 
 const NEWS_SOURCE_SEEDS: &[NewsSourceSeed] = &[
@@ -126,6 +134,12 @@ const NEWS_SOURCE_SEEDS: &[NewsSourceSeed] = &[
         id: "mys",
         game_id: "wd",
         name: "米游社",
+        index: 1,
+    },
+    NewsSourceSeed {
+        id: "web_cn",
+        game_id: "nodusfall",
+        name: "官方网站",
         index: 1,
     },
 ];
