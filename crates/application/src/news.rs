@@ -233,6 +233,7 @@ pub struct UpdateNewsCommand {
 pub struct UpdateNewsResult {
     pub item: NewsSummary,
     pub created: bool,
+    pub changed: bool,
 }
 
 /// 包含兜底封面的新闻创建或更新结果
@@ -240,6 +241,7 @@ pub struct UpdateNewsResult {
 pub struct UpdatedNewsResult {
     pub item: NewsSummary,
     pub created: bool,
+    pub changed: bool,
     pub game_cover: Option<String>,
 }
 
@@ -446,6 +448,7 @@ where
         Ok(UpdatedNewsResult {
             item: result.item,
             created: result.created,
+            changed: result.changed,
             game_cover,
         })
     }

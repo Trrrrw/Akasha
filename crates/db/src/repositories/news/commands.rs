@@ -67,18 +67,31 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                     })
                     .unwrap_or_else(|| created_news_fields(command.characters.is_some()));
 
+                if !created && changed_fields.is_empty() {
+                    return Ok(UpdateNewsResult {
+                        created: false,
+                        changed: false,
+                        item: news_summary(command),
+                    });
+                }
+
                 if let Some(row) = existing {
-                    let mut active: news::ActiveModel = row.into();
-                    active.title = Set(command.title.clone());
-                    active.intro = Set(command.intro.clone());
-                    active.publish_time = Set(command.publish_time);
-                    active.source_url = Set(command.source_url.clone());
-                    active.cover = Set(command.cover.clone());
-                    active.news_type = Set(news_type);
-                    active.video_url = Set(command.video_url.clone());
-                    active.video_duration_ms = Set(command.video_duration_ms);
-                    active.raw_data = Set(command.raw_data.clone());
-                    active.update(txn).await?;
+                    if changed_fields
+                        .iter()
+                        .any(|field| *field != "tags" && *field != "characters")
+                    {
+                        let mut active: news::ActiveModel = row.into();
+                        active.title = Set(command.title.clone());
+                        active.intro = Set(command.intro.clone());
+                        active.publish_time = Set(command.publish_time);
+                        active.source_url = Set(command.source_url.clone());
+                        active.cover = Set(command.cover.clone());
+                        active.news_type = Set(news_type);
+                        active.video_url = Set(command.video_url.clone());
+                        active.video_duration_ms = Set(command.video_duration_ms);
+                        active.raw_data = Set(command.raw_data.clone());
+                        active.update(txn).await?;
+                    }
                 } else {
                     news::ActiveModel {
                         game_id: Set(command.game_id.clone()),
@@ -98,24 +111,30 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                     .await?;
                 }
 
-                news_tags_link::Entity::delete_many()
-                    .filter(news_tags_link::Column::GameId.eq(&command.game_id))
-                    .filter(news_tags_link::Column::SourceId.eq(&command.source_id))
-                    .filter(news_tags_link::Column::NewsId.eq(&command.id))
-                    .exec(txn)
-                    .await?;
-                for tag in &command.tags {
-                    news_tags_link::ActiveModel {
-                        game_id: Set(command.game_id.clone()),
-                        source_id: Set(command.source_id.clone()),
-                        news_id: Set(command.id.clone()),
-                        name: Set(tag.clone()),
+                if created || changed_fields.contains(&"tags") {
+                    news_tags_link::Entity::delete_many()
+                        .filter(news_tags_link::Column::GameId.eq(&command.game_id))
+                        .filter(news_tags_link::Column::SourceId.eq(&command.source_id))
+                        .filter(news_tags_link::Column::NewsId.eq(&command.id))
+                        .exec(txn)
+                        .await?;
+                    for tag in &command.tags {
+                        news_tags_link::ActiveModel {
+                            game_id: Set(command.game_id.clone()),
+                            source_id: Set(command.source_id.clone()),
+                            news_id: Set(command.id.clone()),
+                            name: Set(tag.clone()),
+                        }
+                        .insert(txn)
+                        .await?;
                     }
-                    .insert(txn)
-                    .await?;
                 }
 
-                if let Some(characters) = command.characters.as_ref() {
+                if let Some(characters) = command
+                    .characters
+                    .as_ref()
+                    .filter(|_| created || changed_fields.contains(&"characters"))
+                {
                     replace_news_character_links(
                         txn,
                         &command.game_id,
@@ -146,30 +165,36 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
 
                 Ok(UpdateNewsResult {
                     created,
-                    item: NewsSummary {
-                        id: command.id,
-                        source_id: command.source_id,
-                        title: command.title,
-                        publish_time: command.publish_time,
-                        source_url: command.source_url,
-                        cover: command.cover,
-                        news_type: command.news_type,
-                        tags: command.tags,
-                        characters: command
-                            .characters
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(NewsCharacter::from)
-                            .collect(),
-                        video_url: command.video_url,
-                        video_duration_ms: command.video_duration_ms,
-                        intro: command.intro,
-                    },
+                    changed: true,
+                    item: news_summary(command),
                 })
             })
         })
         .await
         .map_err(transaction_error)
+}
+
+/// 将新闻写入命令转换为接口返回所需的公开摘要
+fn news_summary(command: UpdateNewsCommand) -> NewsSummary {
+    NewsSummary {
+        id: command.id,
+        source_id: command.source_id,
+        title: command.title,
+        publish_time: command.publish_time,
+        source_url: command.source_url,
+        cover: command.cover,
+        news_type: command.news_type,
+        tags: command.tags,
+        characters: command
+            .characters
+            .unwrap_or_default()
+            .into_iter()
+            .map(NewsCharacter::from)
+            .collect(),
+        video_url: command.video_url,
+        video_duration_ms: command.video_duration_ms,
+        intro: command.intro,
+    }
 }
 
 /// 计算一条已有新闻实际发生变化的字段

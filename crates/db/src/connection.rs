@@ -299,7 +299,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        entities::{games, news_sources},
+        entities::{audit_logs, games, news_sources},
         repositories,
     };
 
@@ -679,6 +679,56 @@ mod tests {
             .expect("news should remain queryable")
             .expect("news should still exist");
         assert!(summary.characters.is_empty());
+    }
+
+    /// 验证重复提交完全相同的新闻不会产生物理更新或新审计记录
+    #[tokio::test]
+    async fn skips_unchanged_news_writes() {
+        let db = Db::init(DbOptions {
+            sqlite_path: ":memory:".to_owned(),
+        })
+        .await
+        .expect("SQLite schema and seed data should initialize");
+        let command = UpdateNewsCommand {
+            game_id: "ys".to_owned(),
+            source_id: "web_cn".to_owned(),
+            id: "unchanged-news".to_owned(),
+            title: "重复检查新闻".to_owned(),
+            intro: Some("内容没有变化".to_owned()),
+            publish_time: Utc::now().fixed_offset(),
+            source_url: "https://example.com/unchanged-news".to_owned(),
+            cover: None,
+            news_type: "article".to_owned(),
+            video_url: None,
+            video_duration_ms: None,
+            tags: Vec::new(),
+            characters: Some(Vec::new()),
+            raw_data: json!({ "id": "unchanged-news" }),
+            audit: audit_context(),
+        };
+
+        let created = repositories::news::update_news(&db, command.clone())
+            .await
+            .expect("news should be created");
+        assert!(created.created);
+        assert!(created.changed);
+        let audit_count = audit_logs::Entity::find()
+            .count(db.conn())
+            .await
+            .expect("audit logs should be countable");
+
+        let unchanged = repositories::news::update_news(&db, command)
+            .await
+            .expect("identical news should be accepted");
+        assert!(!unchanged.created);
+        assert!(!unchanged.changed);
+        assert_eq!(
+            audit_logs::Entity::find()
+                .count(db.conn())
+                .await
+                .expect("audit logs should remain countable"),
+            audit_count
+        );
     }
 
     /// 验证新闻列表和 RSS 共用标题语法、字面量匹配与角色筛选

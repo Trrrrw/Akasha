@@ -5,7 +5,7 @@ use akasha_application::news::{
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header::HeaderName},
     response::IntoResponse,
 };
 use axum_extra::extract::Query as MultiQuery;
@@ -23,6 +23,8 @@ use crate::{
     },
     state::AppState,
 };
+
+const AKASHA_CHANGE_HEADER: HeaderName = HeaderName::from_static("x-akasha-change");
 
 /// 创建或更新新闻的 HTTP 请求体
 #[derive(Deserialize)]
@@ -171,11 +173,11 @@ pub(crate) async fn update_news(
     let news_type = normalized_news_type(&body.news_type)?;
     require_news_source(&state, &game_id, &source_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
-    tracing::info!(actor = %actor.label(), game_id = %game_id, news_id = %body.id, "updating news");
+    let news_id = body.id.clone();
     let result = state
         .application()
         .update_news(UpdateNewsCommand {
-            game_id,
+            game_id: game_id.clone(),
             source_id,
             id: body.id,
             title: body.title,
@@ -201,13 +203,38 @@ pub(crate) async fn update_news(
         })
         .await?;
 
+    if result.changed {
+        tracing::info!(
+            actor = %actor.label(),
+            game_id = %game_id,
+            news_id = %news_id,
+            created = result.created,
+            "saved news"
+        );
+    } else {
+        tracing::debug!(
+            actor = %actor.label(),
+            game_id = %game_id,
+            news_id = %news_id,
+            "news is unchanged"
+        );
+    }
+
     let status = if result.created {
         StatusCode::CREATED
     } else {
         StatusCode::OK
     };
+    let change = if result.created {
+        HeaderValue::from_static("created")
+    } else if result.changed {
+        HeaderValue::from_static("updated")
+    } else {
+        HeaderValue::from_static("unchanged")
+    };
     Ok((
         status,
+        [(AKASHA_CHANGE_HEADER, change)],
         Json(NewsItemResponse::from_summary(
             result.item,
             result.game_cover.as_deref(),
