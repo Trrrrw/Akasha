@@ -17,12 +17,14 @@ pub(crate) async fn build(config: Config) -> Result<Router> {
     let (v1_router, openapi) = api::v1::router();
 
     let router = Router::new()
-        .merge(healthz::router())
         .merge(site::router(game_data_asset_dir))
         .merge(api::docs::router(openapi))
         .merge(api::admin::router())
         .merge(v1_router)
-        .with_state(state);
+        .with_state(state.clone());
 
-    Ok(middleware::apply(router))
+    // 存活探针由容器高频调用，不进入普通请求 INFO 追踪
+    let health_router = healthz::router().with_state(state);
+
+    Ok(health_router.merge(middleware::apply(router)))
 }
