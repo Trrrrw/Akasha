@@ -15,16 +15,16 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-anyhow = "1"
-axum = "0.8"
-axum-extra = { version = "0.12", default-features = false, features = ["query"] }
+akasha-application = { path = "crates/application" }
+akasha-db = { path = "crates/db" }
+akasha-mys = { path = "crates/mys" }
 chrono = { version = "0.4", features = ["clock"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["full"] }
+tokio = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
 uuid = { version = "1", features = ["v4"] }
 
 [profile.release]

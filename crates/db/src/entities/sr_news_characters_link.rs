@@ -23,13 +23,13 @@ pub struct Model {
         from = "(game_id, news_id, source_id)",
         to = "(game_id, id, source_id)"
     )]
-    pub news: Option<news::Entity>,
+    pub news: HasOne<news::Entity>,
     #[sea_orm(
         belongs_to,
         from = "(character_collection, character_id)",
         to = "(collection, id)"
     )]
-    pub character: Option<sr_game_data::Entity>,
+    pub character: HasOne<sr_game_data::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -15,27 +15,27 @@ name = "akasha-backend"
 path = "src/main.rs"
 
 [dependencies]
-akasha-application = { path = "../application" }
-akasha-db = { path = "../db" }
-akasha-mys = { path = "../mys" }
-anyhow = { workspace = true }
-axum = { workspace = true }
-axum-extra = { workspace = true }
+akasha-application = { workspace = true }
+akasha-db = { workspace = true }
+akasha-mys = { workspace = true }
+anyhow = "1"
+axum = "0.8"
+axum-extra = { version = "0.12", default-features = false, features = ["query"] }
 chrono = { workspace = true }
 hmac = "0.13"
 html2text = { version = "0.17", features = ["css"] }
-quick-xml = { version = "0.41", features = ["serialize"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "form", "rustls"] }
+quick-xml = { version = "0.42", features = ["serialize"] }
+reqwest = { workspace = true, features = ["form"] }
 rss = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.11"
-toml = "0.9"
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+toml = "1.1"
 tower = "0.5"
-tower-http = { version = "0.6.8", features = ["fs", "trace", "request-id","cors"] }
+tower-http = { version = "0.7", features = ["cors", "fs", "request-id", "trace"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
 utoipa = { version = "5.4.0", features = ["axum_extras"] }
 utoipa-axum = "0.2.0"
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
