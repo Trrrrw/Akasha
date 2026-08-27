@@ -75,7 +75,6 @@ Authorization: Bearer <DATA_WRITE_TOKEN>
 
 - 修改前后检查 Git 状态，保留用户的无关改动
 - 只暂存用户确认范围内的文件；提交前检查工作区和暂存区差异
-- 根据功能或逻辑目的拆分多个 commit，每个 commit 只表达一个明确目的
 - 仅在用户明确要求时创建分支或 Pull Request
 - 继续已有 PR 时使用其 head branch
 - backend 与 worker 有破坏性 API 联动时，两边完成 CI 和本地验证后再合并或部署
