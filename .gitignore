@@ -1,14 +1,12 @@
 target/
 .temp/
-.agents/
-.codex/
 dist/
 /justfile
 data/
+.agents/skills
 
 config/*.toml
 !config/*.toml.example
 
 .env
-AGENTS.md
 skills-lock.json

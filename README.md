@@ -9,6 +9,15 @@ Akasha 是一个使用 Rust 和 SQLite 实现的游戏信息聚合后端。公�
 - `crates/db`：SeaORM Entity、SQLite repository 和 schema 同步
 - `crates/mys`：米游社视频临时签名客户端
 
+## Agent Skills
+
+复制下面的提示词并发送给你的 Agent：
+
+```text
+请访问以下安装说明，并根据说明安装其中列出的 Agent Skills：
+https://github.com/Trrrrw/Akasha/blob/main/skills/README.md
+```
+
 ## 环境配置
 
 后端配置文件位于 `config/backend.toml`，复制示例后填写实际值：
@@ -68,16 +77,10 @@ openssl rand -base64 32
 
 ## 本地开发
 
-Windows：
-
-```powershell
-just backend
-```
-
-Linux：
+启动后端：
 
 ```bash
-./scripts/linux/start-dev.sh
+cargo run
 ```
 
 运行检查：

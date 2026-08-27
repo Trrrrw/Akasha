@@ -1,0 +1,6 @@
+interface:
+  display_name: "Akasha 游戏信息"
+  short_description: "查询 Akasha 的游戏资料、新闻、活动、生日和媒体信息"
+  default_prompt: "使用 $akasha 通过公开只读 API 查询 Akasha，并附上相关来源和筛选条件"
+policy:
+  allow_implicit_invocation: true
