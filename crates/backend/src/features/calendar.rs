@@ -1,6 +1,7 @@
 pub(crate) mod admin;
 pub(crate) mod endpoints;
 mod events;
+mod ics;
 
 use axum::{
     Router,

@@ -10,7 +10,10 @@ use chrono::{Days, FixedOffset, NaiveDate, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-use super::{china_timezone, endpoints::ics_escape};
+use super::{
+    china_timezone,
+    ics::{AlarmOffset, AlarmRelation, IcsCalendar, IcsEvent},
+};
 use crate::{
     http::{
         error::AppError,
@@ -24,6 +27,7 @@ const EVENT_LIMIT: u64 = 2_000;
 const DEFAULT_PAST_DAYS: u64 = 30;
 const DEFAULT_FUTURE_DAYS: u64 = 366;
 const MAX_RANGE_DAYS: i64 = 1_100;
+const MAX_REMINDER_MINUTES: u32 = 30 * 24 * 60;
 
 /// 游戏活动日历查询参数
 #[derive(Debug, Deserialize, IntoParams)]
@@ -36,6 +40,44 @@ pub(super) struct EventQuery {
     /// 活动类型，可重复传入 game_activity、banner 或 web_activity
     #[serde(default)]
     kind: Vec<String>,
+}
+
+/// 游戏活动 ICS 查询参数
+#[derive(Debug, Deserialize)]
+pub(super) struct EventIcsQuery {
+    from: Option<String>,
+    to: Option<String>,
+    #[serde(default)]
+    kind: Vec<String>,
+    #[serde(default)]
+    event_mode: EventIcsMode,
+    start_reminder_minutes: Option<u32>,
+    end_reminder_minutes: Option<u32>,
+}
+
+/// 游戏活动 ICS 展示与提醒选项
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(super) struct EventIcsOptions {
+    /// 事件表示方式，span 保留完整活动时段，milestones 分别生成开始和结束事件
+    #[serde(default)]
+    #[param(inline)]
+    event_mode: EventIcsMode,
+    /// 活动开始前多少分钟提醒，最大 43200 分钟
+    start_reminder_minutes: Option<u32>,
+    /// 活动结束前多少分钟提醒，最大 43200 分钟
+    end_reminder_minutes: Option<u32>,
+}
+
+/// 游戏活动在 ICS 中的表示方式
+#[derive(Debug, Default, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+enum EventIcsMode {
+    /// 使用一条同时包含开始和结束时间的事件
+    #[default]
+    Span,
+    /// 分别生成活动开始和活动结束事件
+    Milestones,
 }
 
 /// 游戏活动日历条目
@@ -85,8 +127,8 @@ pub(super) async fn events_json(
     path = "/games/{game_id}/calendar/events.ics",
     tag = "Calendar",
     summary = "获取游戏活动 ICS",
-    description = "以 ICS 格式导出指定日期范围内的游戏活动、卡池和网页活动",
-    params(GamePath, EventQuery),
+    description = "以 ICS 格式导出指定日期范围内的游戏活动、卡池和网页活动，可选择完整时段或起止节点表示并设置提醒",
+    params(GamePath, EventQuery, EventIcsOptions),
     responses(
         (status = 200, content_type = "text/calendar", body = String),
         (status = 400, body = ErrorResponse),
@@ -97,9 +139,11 @@ pub(super) async fn events_json(
 pub(super) async fn events_ics(
     Path(GamePath { game_id }): Path<GamePath>,
     State(state): State<AppState>,
-    MultiQuery(query): MultiQuery<EventQuery>,
+    MultiQuery(query): MultiQuery<EventIcsQuery>,
 ) -> Result<Response, AppError> {
-    let items = list_events(&state, &game_id, query).await?;
+    let (filter, options) = query.into_parts();
+    options.validate()?;
+    let items = list_events(&state, &game_id, filter).await?;
     let game = state
         .application()
         .find_game(&game_id)
@@ -116,7 +160,7 @@ pub(super) async fn events_ics(
             ),
             (header::CONTENT_DISPOSITION, disposition),
         ],
-        build_ics(&game_id, &game.name_zh, &items),
+        build_ics(&game_id, &game.name_zh, &items, &options),
     )
         .into_response())
 }
@@ -205,6 +249,40 @@ impl EventQuery {
     }
 }
 
+impl EventIcsOptions {
+    fn validate(&self) -> Result<(), AppError> {
+        if self
+            .start_reminder_minutes
+            .is_some_and(|minutes| minutes > MAX_REMINDER_MINUTES)
+            || self
+                .end_reminder_minutes
+                .is_some_and(|minutes| minutes > MAX_REMINDER_MINUTES)
+        {
+            return Err(AppError::BadRequest(
+                "calendar reminders must be between 0 and 43200 minutes".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl EventIcsQuery {
+    fn into_parts(self) -> (EventQuery, EventIcsOptions) {
+        (
+            EventQuery {
+                from: self.from,
+                to: self.to,
+                kind: self.kind,
+            },
+            EventIcsOptions {
+                event_mode: self.event_mode,
+                start_reminder_minutes: self.start_reminder_minutes,
+                end_reminder_minutes: self.end_reminder_minutes,
+            },
+        )
+    }
+}
+
 fn parse_date(value: &str) -> Result<NaiveDate, AppError> {
     NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
         .map_err(|_| AppError::BadRequest("calendar dates must use YYYY-MM-DD".to_owned()))
@@ -226,44 +304,101 @@ impl EventResponse {
     }
 }
 
-fn build_ics(game_id: &str, game_name: &str, items: &[EventResponse]) -> String {
+fn build_ics(
+    game_id: &str,
+    game_name: &str,
+    items: &[EventResponse],
+    options: &EventIcsOptions,
+) -> String {
     let calendar_name = format!("{game_name}游戏活动");
-    let mut lines = vec![
-        "BEGIN:VCALENDAR".to_owned(),
-        "VERSION:2.0".to_owned(),
-        "PRODID:-//Akasha//Game Events//ZH-CN".to_owned(),
-        "CALSCALE:GREGORIAN".to_owned(),
-        "METHOD:PUBLISH".to_owned(),
-        format!("NAME;LANGUAGE=zh-CN:{}", ics_escape(&calendar_name)),
-        format!("X-WR-CALNAME:{}", ics_escape(&calendar_name)),
-    ];
+    let mut calendar = IcsCalendar::new("-//Akasha//Game Events//ZH-CN", &calendar_name);
     for item in items {
         let start = chrono::DateTime::parse_from_rfc3339(&item.start_time)
-            .expect("stored event start should be RFC 3339");
+            .expect("stored event start should be RFC 3339")
+            .with_timezone(&Utc);
         let end = chrono::DateTime::parse_from_rfc3339(&item.end_time)
-            .expect("stored event end should be RFC 3339");
-        lines.extend([
-            "BEGIN:VEVENT".to_owned(),
-            format!("UID:event-{game_id}-{}@akasha", ics_escape(&item.id)),
-            "DTSTAMP:19700101T000000Z".to_owned(),
-            format!(
-                "DTSTART:{}",
-                start.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")
-            ),
-            format!("DTEND:{}", end.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")),
-            format!("SUMMARY:{}", ics_escape(&item.title)),
-            format!("URL:{}", ics_escape(&item.url)),
-            "TRANSP:TRANSPARENT".to_owned(),
-            "END:VEVENT".to_owned(),
-        ]);
+            .expect("stored event end should be RFC 3339")
+            .with_timezone(&Utc);
+        match options.event_mode {
+            EventIcsMode::Span => {
+                let mut event = IcsEvent::new(&format!("event-{game_id}-{}@akasha", item.id))
+                    .starts_at(start)
+                    .ends_at(end)
+                    .summary(&item.title)
+                    .url(&item.url)
+                    .transparent();
+                if let Some(minutes) = options.start_reminder_minutes {
+                    event = event.display_alarm(
+                        AlarmRelation::Start,
+                        AlarmOffset::Before(minutes),
+                        &format!("活动即将开始：{}", item.title),
+                    );
+                }
+                if let Some(minutes) = options.end_reminder_minutes {
+                    event = event.display_alarm(
+                        AlarmRelation::End,
+                        AlarmOffset::Before(minutes),
+                        &format!("活动即将结束：{}", item.title),
+                    );
+                }
+                calendar.push_event(event);
+            }
+            EventIcsMode::Milestones => {
+                let mut start_event =
+                    IcsEvent::new(&format!("event-{game_id}-{}-start@akasha", item.id))
+                        .starts_at(start)
+                        .summary(&format!("【开始】{}", item.title))
+                        .url(&item.url)
+                        .transparent();
+                if let Some(minutes) = options.start_reminder_minutes {
+                    start_event = start_event.display_alarm(
+                        AlarmRelation::Start,
+                        AlarmOffset::Before(minutes),
+                        &format!("活动即将开始：{}", item.title),
+                    );
+                }
+                calendar.push_event(start_event);
+
+                let mut end_event =
+                    IcsEvent::new(&format!("event-{game_id}-{}-end@akasha", item.id))
+                        .starts_at(end)
+                        .summary(&format!("【结束】{}", item.title))
+                        .url(&item.url)
+                        .transparent();
+                if let Some(minutes) = options.end_reminder_minutes {
+                    end_event = end_event.display_alarm(
+                        AlarmRelation::Start,
+                        AlarmOffset::Before(minutes),
+                        &format!("活动即将结束：{}", item.title),
+                    );
+                }
+                calendar.push_event(end_event);
+            }
+        }
     }
-    lines.push("END:VCALENDAR".to_owned());
-    format!("{}\r\n", lines.join("\r\n"))
+    calendar.finish()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_shared_filters_and_ics_options_from_one_query() {
+        let uri = "/calendar/events.ics?from=2026-08-01&to=2026-10-01&kind=game_activity&kind=banner&event_mode=milestones&start_reminder_minutes=60&end_reminder_minutes=360"
+            .parse()
+            .expect("test URI should be valid");
+        let MultiQuery(query) = MultiQuery::<EventIcsQuery>::try_from_uri(&uri)
+            .expect("combined ICS query should deserialize");
+        let (filter, options) = query.into_parts();
+
+        assert_eq!(filter.from.as_deref(), Some("2026-08-01"));
+        assert_eq!(filter.to.as_deref(), Some("2026-10-01"));
+        assert_eq!(filter.kind, ["game_activity", "banner"]);
+        assert!(matches!(options.event_mode, EventIcsMode::Milestones));
+        assert_eq!(options.start_reminder_minutes, Some(60));
+        assert_eq!(options.end_reminder_minutes, Some(360));
+    }
 
     #[test]
     fn serializes_event_json_times_in_utc() {
@@ -309,9 +444,55 @@ mod tests {
                 labels: Vec::new(),
                 url: "https://example.com/event".to_owned(),
             }],
+            &EventIcsOptions::default(),
         );
         assert!(calendar.contains("DTSTART:20260819T020000Z\r\n"));
         assert!(calendar.contains("DTEND:20260921T195900Z\r\n"));
         assert!(calendar.contains("SUMMARY:幽境危战\r\n"));
+    }
+
+    #[test]
+    fn exports_start_and_end_milestones_with_reminders() {
+        let calendar = build_ics(
+            "ys",
+            "原神",
+            &[EventResponse {
+                id: "event-1".to_owned(),
+                kind: "game_activity".to_owned(),
+                title: "幽境危战".to_owned(),
+                start_time: "2026-08-19T10:00:00+08:00".to_owned(),
+                end_time: "2026-09-22T03:59:00+08:00".to_owned(),
+                version: Some("7.0".to_owned()),
+                cover: None,
+                labels: Vec::new(),
+                url: "https://example.com/event".to_owned(),
+            }],
+            &EventIcsOptions {
+                event_mode: EventIcsMode::Milestones,
+                start_reminder_minutes: Some(60),
+                end_reminder_minutes: Some(360),
+            },
+        );
+
+        assert_eq!(calendar.matches("BEGIN:VEVENT").count(), 2);
+        assert!(calendar.contains("UID:event-ys-event-1-start@akasha\r\n"));
+        assert!(calendar.contains("UID:event-ys-event-1-end@akasha\r\n"));
+        assert!(calendar.contains("SUMMARY:【开始】幽境危战\r\n"));
+        assert!(calendar.contains("SUMMARY:【结束】幽境危战\r\n"));
+        assert!(!calendar.contains("DTEND:"));
+        assert!(calendar.contains("TRIGGER;RELATED=START:-PT1H\r\n"));
+        assert!(calendar.contains("TRIGGER;RELATED=START:-PT6H\r\n"));
+        assert_eq!(calendar.matches("BEGIN:VALARM").count(), 2);
+    }
+
+    #[test]
+    fn rejects_reminders_over_thirty_days() {
+        let options = EventIcsOptions {
+            event_mode: EventIcsMode::Span,
+            start_reminder_minutes: Some(MAX_REMINDER_MINUTES + 1),
+            end_reminder_minutes: None,
+        };
+
+        assert!(matches!(options.validate(), Err(AppError::BadRequest(_))));
     }
 }

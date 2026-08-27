@@ -85,6 +85,49 @@ mod tests {
         assert!(!paths.keys().any(|path| path.contains("/admin/")));
         assert!(!paths.keys().any(|path| path.contains("/auth/")));
 
+        let event_ics_parameters =
+            paths["/api/v1/games/{game_id}/calendar/events.ics"]["get"]["parameters"]
+                .as_array()
+                .expect("活动 ICS 应记录查询参数");
+        let event_ics_parameter_names = event_ics_parameters
+            .iter()
+            .filter_map(|parameter| parameter["name"].as_str())
+            .collect::<Vec<_>>();
+        for name in [
+            "from",
+            "to",
+            "kind",
+            "event_mode",
+            "start_reminder_minutes",
+            "end_reminder_minutes",
+        ] {
+            assert!(
+                event_ics_parameter_names.contains(&name),
+                "活动 ICS 缺少 {name} 参数"
+            );
+        }
+
+        let birthday_ics_parameters =
+            paths["/api/v1/games/{game_id}/calendar/character-birthdays.ics"]["get"]["parameters"]
+                .as_array()
+                .expect("角色生日 ICS 应记录查询参数");
+        let birthday_ics_parameter_names = birthday_ics_parameters
+            .iter()
+            .filter_map(|parameter| parameter["name"].as_str())
+            .collect::<Vec<_>>();
+        for name in [
+            "q",
+            "birthday_month",
+            "gender",
+            "reminder_time",
+            "reminder_minutes_before",
+        ] {
+            assert!(
+                birthday_ics_parameter_names.contains(&name),
+                "角色生日 ICS 缺少 {name} 参数"
+            );
+        }
+
         let schemas = document["components"]["schemas"]
             .as_object()
             .expect("应包含响应模型");
