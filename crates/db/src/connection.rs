@@ -279,14 +279,13 @@ fn news_character_index(name: &str, table: &str) -> sea_orm::sea_query::IndexCre
 mod tests {
     use akasha_application::{
         audit::{AuditActorType, AuditContext},
-        calendar::{
-            CalendarEventInput, GameVersionInput, ListCalendarEventsFilter, SyncCalendarCommand,
-        },
+        calendar::{CalendarEventInput, ListCalendarEventsFilter, SyncCalendarEventsCommand},
         characters::YsCharacterListFilter,
         game_data::{
             GameDataCollectionFilter, GameDataEntry, GameDataListFilter, ListGameDataRawFilter,
             SyncGameDataCollectionCommand, UpdateGameDataCollectionCommand,
         },
+        game_versions::{GameVersionInput, SyncGameVersionsCommand},
         news::{
             ListNewsFilter, NewsCharacter, NewsCharacterInput, NewsFeedFilter, NewsFilter,
             NewsOrder, UpdateNewsCommand,
@@ -826,38 +825,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn synchronizes_versions_and_calendar_events_transactionally() {
+    async fn synchronizes_versions_and_calendar_events_independently() {
         let db = Db::init(DbOptions {
             sqlite_path: ":memory:".to_owned(),
         })
         .await
         .expect("SQLite schema and seed data should initialize");
 
-        let result = repositories::calendar::sync(
+        let version_command = || SyncGameVersionsCommand {
+            game_id: "ys".to_owned(),
+            replace: true,
+            versions: vec![
+                GameVersionInput {
+                    id: "7.0".to_owned(),
+                    name: Some("无神怜爱的雪国".to_owned()),
+                    start_time: calendar_time(8, 12, 11),
+                    time_status: "scheduled".to_owned(),
+                    source_id: "mys".to_owned(),
+                    source_news_id: "version-70".to_owned(),
+                    source_hash: "version-hash-70".to_owned(),
+                },
+                GameVersionInput {
+                    id: "7.1".to_owned(),
+                    name: None,
+                    start_time: calendar_time(9, 23, 11),
+                    time_status: "scheduled".to_owned(),
+                    source_id: "mys".to_owned(),
+                    source_news_id: "version-71".to_owned(),
+                    source_hash: "version-hash-71".to_owned(),
+                },
+            ],
+            audit: audit_context(),
+        };
+        let version_result = repositories::game_versions::sync(&db, version_command())
+            .await
+            .expect("game versions should synchronize");
+        let event_result = repositories::calendar::sync(
             &db,
-            SyncCalendarCommand {
+            SyncCalendarEventsCommand {
                 game_id: "ys".to_owned(),
                 replace: true,
-                versions: vec![
-                    GameVersionInput {
-                        id: "7.0".to_owned(),
-                        name: Some("无神怜爱的雪国".to_owned()),
-                        start_time: calendar_time(8, 12, 11),
-                        time_status: "scheduled".to_owned(),
-                        source_id: "mys".to_owned(),
-                        source_news_id: "version-70".to_owned(),
-                        source_hash: "version-hash-70".to_owned(),
-                    },
-                    GameVersionInput {
-                        id: "7.1".to_owned(),
-                        name: None,
-                        start_time: calendar_time(9, 23, 11),
-                        time_status: "scheduled".to_owned(),
-                        source_id: "mys".to_owned(),
-                        source_news_id: "version-71".to_owned(),
-                        source_hash: "version-hash-71".to_owned(),
-                    },
-                ],
                 events: vec![CalendarEventInput {
                     id: "event-1".to_owned(),
                     kind: "game_activity".to_owned(),
@@ -877,11 +884,18 @@ mod tests {
             },
         )
         .await
-        .expect("calendar projection should synchronize");
+        .expect("calendar events should synchronize");
 
-        assert_eq!(result.versions_created, 2);
-        assert_eq!(result.events_created, 1);
-        let versions = repositories::calendar::list_versions(&db, "ys")
+        assert_eq!(version_result.versions_created, 2);
+        assert_eq!(event_result.events_created, 1);
+        let repeated_version_result = repositories::game_versions::sync(&db, version_command())
+            .await
+            .expect("unchanged game versions should synchronize without writes");
+        assert!(!repeated_version_result.changed);
+        assert_eq!(repeated_version_result.versions_created, 0);
+        assert_eq!(repeated_version_result.versions_updated, 0);
+        assert_eq!(repeated_version_result.versions_deleted, 0);
+        let versions = repositories::game_versions::list(&db, "ys")
             .await
             .expect("versions should be queryable");
         assert_eq!(versions[0].end_time, Some(calendar_time(9, 23, 11)));

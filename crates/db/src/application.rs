@@ -3,8 +3,8 @@
 use akasha_application::{
     ApplicationRepository, RepositoryError, RepositoryResult,
     calendar::{
-        CalendarEvent, GameVersion, ListCalendarEventsFilter, SyncCalendarCommand,
-        SyncCalendarResult,
+        CalendarEvent, ListCalendarEventsFilter, SyncCalendarEventsCommand,
+        SyncCalendarEventsResult,
     },
     characters::{
         SrCharacter, SrCharacterListFilter, YsCharacter, YsCharacterListFilter, ZzzCharacter,
@@ -15,6 +15,7 @@ use akasha_application::{
         ListGameDataRawFilter, SyncGameDataCollectionCommand, SyncGameDataCollectionResult,
         UpdateGameDataCollectionCommand,
     },
+    game_versions::{GameVersion, SyncGameVersionsCommand, SyncGameVersionsResult},
     games::GameSummary,
     news::{
         ListNewsFilter, ListNewsRawFilter, NewsFeedFilter, NewsRawItem, NewsSeries, NewsSource,
@@ -68,15 +69,24 @@ impl ApplicationRepository for Db {
     }
 
     async fn list_game_versions(&self, game_id: &str) -> RepositoryResult<Vec<GameVersion>> {
-        repositories::calendar::list_versions(self, game_id)
+        repositories::game_versions::list(self, game_id)
             .await
             .map_err(RepositoryError::new)
     }
 
-    async fn sync_calendar(
+    async fn sync_game_versions(
         &self,
-        command: SyncCalendarCommand,
-    ) -> RepositoryResult<SyncCalendarResult> {
+        command: SyncGameVersionsCommand,
+    ) -> RepositoryResult<SyncGameVersionsResult> {
+        repositories::game_versions::sync(self, command)
+            .await
+            .map_err(RepositoryError::new)
+    }
+
+    async fn sync_calendar_events(
+        &self,
+        command: SyncCalendarEventsCommand,
+    ) -> RepositoryResult<SyncCalendarEventsResult> {
         repositories::calendar::sync(self, command)
             .await
             .map_err(RepositoryError::new)

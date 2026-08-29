@@ -5,8 +5,8 @@ use chrono::{DateTime, FixedOffset};
 use crate::{
     RepositoryResult,
     calendar::{
-        CalendarEvent, GameVersion, ListCalendarEventsFilter, SyncCalendarCommand,
-        SyncCalendarResult,
+        CalendarEvent, ListCalendarEventsFilter, SyncCalendarEventsCommand,
+        SyncCalendarEventsResult,
     },
     characters::{
         SrCharacter, SrCharacterListFilter, YsCharacter, YsCharacterListFilter, ZzzCharacter,
@@ -17,6 +17,7 @@ use crate::{
         ListGameDataRawFilter, SyncGameDataCollectionCommand, SyncGameDataCollectionResult,
         UpdateGameDataCollectionCommand,
     },
+    game_versions::{GameVersion, SyncGameVersionsCommand, SyncGameVersionsResult},
     games::GameSummary,
     news::{
         ListNewsFilter, ListNewsRawFilter, NewsFeedFilter, NewsRawItem, NewsSeries, NewsSource,
@@ -64,11 +65,17 @@ pub trait ApplicationRepository: Send + Sync {
         game_id: &str,
     ) -> impl Future<Output = RepositoryResult<Vec<GameVersion>>> + Send;
 
-    /// 原子同步一个游戏的版本和活动投影
-    fn sync_calendar(
+    /// 同步一个游戏的版本时间线
+    fn sync_game_versions(
         &self,
-        command: SyncCalendarCommand,
-    ) -> impl Future<Output = RepositoryResult<SyncCalendarResult>> + Send;
+        command: SyncGameVersionsCommand,
+    ) -> impl Future<Output = RepositoryResult<SyncGameVersionsResult>> + Send;
+
+    /// 原子同步一个游戏的版本和活动投影
+    fn sync_calendar_events(
+        &self,
+        command: SyncCalendarEventsCommand,
+    ) -> impl Future<Output = RepositoryResult<SyncCalendarEventsResult>> + Send;
 
     /// 列出一个游戏已同步的数据集合
     fn list_game_data_collections(

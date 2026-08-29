@@ -72,6 +72,11 @@ mod tests {
             "/api/v1/games/{game_id}/news/series/{tag_name}/episodes/{news_id}/media/nfo"
         ));
         assert!(paths.contains_key("/api/v1/games/{game_id}/data/{collection}"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/versions"));
+        assert_eq!(
+            paths["/api/v1/games/{game_id}/versions"]["get"]["tags"][0],
+            "Game"
+        );
         assert!(!paths.keys().any(|path| path.ends_with("/data/character")));
         assert!(!paths.contains_key("/api/v1/games/ys/characters"));
         assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/character-birthdays"));
@@ -132,7 +137,17 @@ mod tests {
             .as_object()
             .expect("应包含响应模型");
         assert!(schemas.contains_key("GameResponse"));
+        assert!(schemas.contains_key("GameVersionResponse"));
         assert!(!schemas.contains_key("GameDetailResponse"));
+        let game_version_properties = schemas["GameVersionResponse"]["properties"]
+            .as_object()
+            .expect("游戏版本响应应记录字段");
+        for internal_field in ["game_id", "source_id", "source_news_id", "source_hash"] {
+            assert!(
+                !game_version_properties.contains_key(internal_field),
+                "游戏版本响应不应公开 {internal_field}"
+            );
+        }
         assert!(
             schemas["NewsItemResponse"]["properties"]
                 .get("source")

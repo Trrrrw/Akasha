@@ -2,20 +2,6 @@ use chrono::{DateTime, FixedOffset};
 
 use crate::{ApplicationError, ApplicationRepository, ApplicationServices, audit::AuditContext};
 
-/// 游戏版本及其有效时间范围
-#[derive(Debug, Clone)]
-pub struct GameVersion {
-    pub game_id: String,
-    pub id: String,
-    pub name: Option<String>,
-    pub start_time: DateTime<FixedOffset>,
-    pub end_time: Option<DateTime<FixedOffset>>,
-    pub time_status: String,
-    pub source_id: String,
-    pub source_news_id: String,
-    pub source_hash: String,
-}
-
 /// 游戏日历中的一条活动
 #[derive(Debug, Clone)]
 pub struct CalendarEvent {
@@ -45,18 +31,6 @@ pub struct ListCalendarEventsFilter {
     pub limit: u64,
 }
 
-/// Worker 提交的版本投影
-#[derive(Debug, Clone)]
-pub struct GameVersionInput {
-    pub id: String,
-    pub name: Option<String>,
-    pub start_time: DateTime<FixedOffset>,
-    pub time_status: String,
-    pub source_id: String,
-    pub source_news_id: String,
-    pub source_hash: String,
-}
-
 /// Worker 提交的活动投影
 #[derive(Debug, Clone)]
 pub struct CalendarEventInput {
@@ -75,22 +49,18 @@ pub struct CalendarEventInput {
     pub source_hash: String,
 }
 
-/// 原子同步一个游戏的版本和活动投影
+/// 同步一个游戏活动投影的命令
 #[derive(Debug, Clone)]
-pub struct SyncCalendarCommand {
+pub struct SyncCalendarEventsCommand {
     pub game_id: String,
     pub replace: bool,
-    pub versions: Vec<GameVersionInput>,
     pub events: Vec<CalendarEventInput>,
     pub audit: AuditContext,
 }
 
 /// 日历投影同步后的变化统计
 #[derive(Debug, Clone, Copy)]
-pub struct SyncCalendarResult {
-    pub versions_created: u64,
-    pub versions_updated: u64,
-    pub versions_deleted: u64,
+pub struct SyncCalendarEventsResult {
     pub events_created: u64,
     pub events_updated: u64,
     pub events_deleted: u64,
@@ -114,40 +84,21 @@ where
         Ok(self.repository.list_calendar_events(filter).await?)
     }
 
-    /// 读取 Worker 解析相对活动时间所需的版本目录
-    pub async fn list_game_versions(
+    /// 校验并同步一个游戏的活动投影
+    pub async fn sync_calendar_events(
         &self,
-        game_id: &str,
-    ) -> Result<Vec<GameVersion>, ApplicationError> {
-        Ok(self.repository.list_game_versions(game_id).await?)
-    }
-
-    /// 校验并同步一个游戏的版本和活动投影
-    pub async fn sync_calendar(
-        &self,
-        command: SyncCalendarCommand,
-    ) -> Result<SyncCalendarResult, ApplicationError> {
+        command: SyncCalendarEventsCommand,
+    ) -> Result<SyncCalendarEventsResult, ApplicationError> {
         validate_sync_command(&command)?;
-        Ok(self.repository.sync_calendar(command).await?)
+        Ok(self.repository.sync_calendar_events(command).await?)
     }
 }
 
-fn validate_sync_command(command: &SyncCalendarCommand) -> Result<(), ApplicationError> {
+fn validate_sync_command(command: &SyncCalendarEventsCommand) -> Result<(), ApplicationError> {
     if command.game_id.trim().is_empty() {
         return Err(ApplicationError::InvalidInput(
             "game_id must not be empty".to_owned(),
         ));
-    }
-    for version in &command.versions {
-        if version.id.trim().is_empty()
-            || version.source_news_id.trim().is_empty()
-            || version.source_hash.trim().is_empty()
-            || !matches!(version.time_status.as_str(), "scheduled" | "confirmed")
-        {
-            return Err(ApplicationError::InvalidInput(
-                "invalid game version projection".to_owned(),
-            ));
-        }
     }
     for event in &command.events {
         if event.id.trim().is_empty()

@@ -3,10 +3,7 @@ pub(crate) mod endpoints;
 mod events;
 mod ics;
 
-use axum::{
-    Router,
-    routing::{get, put},
-};
+use axum::{Router, routing::put};
 use chrono::FixedOffset;
 use utoipa_axum::router::OpenApiRouter;
 
@@ -23,14 +20,9 @@ pub(crate) fn public_router() -> OpenApiRouter<AppState> {
         .routes(routes!(events::events_ics))
 }
 
-/// 构建版本与活动投影的受保护管理路由
+/// 构建活动投影的受保护管理路由
 pub(crate) fn admin_router() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/games/{game_id}/calendar/versions/raw",
-            get(admin::list_versions),
-        )
-        .route("/games/{game_id}/calendar", put(admin::sync_calendar))
+    Router::new().route("/games/{game_id}/calendar/events", put(admin::sync_events))
 }
 
 /// 返回日历接口统一使用的中国标准时区

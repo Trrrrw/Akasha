@@ -9,6 +9,7 @@ pub mod audit;
 pub mod calendar;
 pub mod characters;
 pub mod game_data;
+pub mod game_versions;
 pub mod games;
 pub mod news;
 pub mod search;
