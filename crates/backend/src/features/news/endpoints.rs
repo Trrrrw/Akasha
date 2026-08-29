@@ -1,4 +1,4 @@
-use akasha_application::news::NewsItemResult;
+use akasha_application::news::{NewsItemResult, VideoPlayback};
 use axum::{
     Json,
     extract::{ConnectInfo, Path, Query, State},
@@ -287,6 +287,7 @@ pub(super) async fn video(
 
     let result = find_video_news(&state, &game_id, &source, &news_id).await?;
     let item = result.item;
+    let video_playback = item.video_playback.unwrap_or(VideoPlayback::Direct);
 
     // 米游社视频必须按文章 ID 请求最新签名，其他来源沿用数据库中的地址
     let video_url = if source == "mys" {
@@ -300,7 +301,7 @@ pub(super) async fn video(
     let video_url = video_url
         .ok_or_else(|| AppError::NotFound(format!("video for news {news_id} is not available")))?;
 
-    Ok(Json(NewsVideoResponse::new(video_url)))
+    Ok(Json(NewsVideoResponse::new(video_url, video_playback)))
 }
 
 #[utoipa::path(

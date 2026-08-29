@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use akasha_application::news::{
     NewsCharacter, NewsCharacterInput, NewsSummary, ReplaceNewsCharactersCommand,
-    ReplaceNewsTagsCommand, UpdateNewsCommand, UpdateNewsResult,
+    ReplaceNewsTagsCommand, UpdateNewsCommand, UpdateNewsResult, VideoPlayback,
 };
 use chrono::Utc;
 use sea_orm::{
@@ -29,6 +29,7 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                 command.publish_time = command.publish_time.with_timezone(&Utc).fixed_offset();
 
                 let news_type = news::NewsType::try_from_value(&command.news_type)?;
+                let video_playback = command.video_playback.map(db_video_playback);
                 let existing = news::Entity::find_by_id((
                     command.game_id.clone(),
                     command.source_id.clone(),
@@ -88,6 +89,7 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                         active.cover = Set(command.cover.clone());
                         active.news_type = Set(news_type);
                         active.video_url = Set(command.video_url.clone());
+                        active.video_playback = Set(video_playback);
                         active.video_duration_ms = Set(command.video_duration_ms);
                         active.raw_data = Set(command.raw_data.clone());
                         active.update(txn).await?;
@@ -104,6 +106,7 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                         cover: Set(command.cover.clone()),
                         news_type: Set(news_type),
                         video_url: Set(command.video_url.clone()),
+                        video_playback: Set(video_playback),
                         video_duration_ms: Set(command.video_duration_ms),
                         raw_data: Set(command.raw_data.clone()),
                     }
@@ -192,6 +195,7 @@ fn news_summary(command: UpdateNewsCommand) -> NewsSummary {
             .map(NewsCharacter::from)
             .collect(),
         video_url: command.video_url,
+        video_playback: command.video_playback,
         video_duration_ms: command.video_duration_ms,
         intro: command.intro,
     }
@@ -225,6 +229,9 @@ fn changed_news_fields(
     }
     if row.video_url != command.video_url {
         fields.push("video_url");
+    }
+    if row.video_playback.map(app_video_playback) != command.video_playback {
+        fields.push("video_playback");
     }
     if row.video_duration_ms != command.video_duration_ms {
         fields.push("video_duration_ms");
@@ -264,6 +271,7 @@ fn created_news_fields(include_characters: bool) -> Vec<&'static str> {
         "cover",
         "news_type",
         "video_url",
+        "video_playback",
         "video_duration_ms",
         "raw_data",
         "tags",
@@ -272,6 +280,22 @@ fn created_news_fields(include_characters: bool) -> Vec<&'static str> {
         fields.push("characters");
     }
     fields
+}
+
+/// 将应用层播放方式转换为数据库枚举
+const fn db_video_playback(value: VideoPlayback) -> news::VideoPlayback {
+    match value {
+        VideoPlayback::Direct => news::VideoPlayback::Direct,
+        VideoPlayback::Embed => news::VideoPlayback::Embed,
+    }
+}
+
+/// 将数据库播放方式转换为应用层枚举
+const fn app_video_playback(value: news::VideoPlayback) -> VideoPlayback {
+    match value {
+        news::VideoPlayback::Direct => VideoPlayback::Direct,
+        news::VideoPlayback::Embed => VideoPlayback::Embed,
+    }
 }
 
 /// 校验一次完整写入中的角色 ID 不重复

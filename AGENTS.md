@@ -75,9 +75,14 @@ Authorization: Bearer <DATA_WRITE_TOKEN>
 
 - 修改前后检查 Git 状态，保留用户的无关改动
 - 只暂存用户确认范围内的文件；提交前检查工作区和暂存区差异
-- 仅在用户明确要求时创建分支或 Pull Request
+- `main` 始终保持可发布；每个会影响运行行为、构建产物、配置、Schema 或 API 的逻辑任务从最新 `main` 创建一个短生命周期分支
+- 功能分支内可以按需本地提交并推送；任务完成且本地验证通过后创建 Pull Request
+- Pull Request CI 必须完整运行测试和 Docker build；通过 CI 并完成 review 后，由用户手动合并，或在用户明确要求时由代理合并
+- 仅修改纯文档、且不影响运行行为、构建、部署、配置、Schema 或 API 的任务可以直接提交并推送到 `main`
 - 继续已有 PR 时使用其 head branch
-- backend 与 worker 有破坏性 API 联动时，两边完成 CI 和本地验证后再合并或部署
+- 根仓库与 `worker/` 分别从各自 `main` 创建分支、提交、推送和创建 Pull Request，不跨仓库混用分支或提交
+- backend 与 worker 有破坏性 API 联动时，两边完成 CI 和本地验证后再合并；合并顺序必须保证 `main` 在任一时刻可发布
+- Pull Request 合并导致 `main` 发生变化后，按发布流程更新并验证服务器部署
 
 ## 故障修复原则
 

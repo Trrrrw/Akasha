@@ -1,4 +1,6 @@
-use akasha_application::news::{NewsCharacter, NewsDetailResult, NewsSource, NewsSummary, NewsTag};
+use akasha_application::news::{
+    NewsCharacter, NewsDetailResult, NewsSource, NewsSummary, NewsTag, VideoPlayback,
+};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -261,10 +263,31 @@ pub(crate) struct NewsItemResponse {
     characters: Vec<NewsCharacterResponse>,
     /// 非米游社来源保存的视频地址，米游社视频需要通过专用接口获取
     video_url: Option<String>,
+    /// 视频播放方式，direct 使用媒体元素，embed 使用受信任平台嵌入组件
+    video_playback: Option<VideoPlaybackResponse>,
     /// 视频时长，单位为秒
     video_duration: Option<u64>,
     /// 新闻简介，可能包含来源 HTML
     intro: Option<String>,
+}
+
+/// 公开视频播放方式
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+enum VideoPlaybackResponse {
+    /// 使用媒体元素直接播放
+    Direct,
+    /// 使用受信任平台组件嵌入播放
+    Embed,
+}
+
+impl From<VideoPlayback> for VideoPlaybackResponse {
+    fn from(value: VideoPlayback) -> Self {
+        match value {
+            VideoPlayback::Direct => Self::Direct,
+            VideoPlayback::Embed => Self::Embed,
+        }
+    }
 }
 
 /// 新闻关联的角色摘要
@@ -365,12 +388,17 @@ impl NewsDetailResponse {
 pub(crate) struct NewsVideoResponse {
     /// 视频播放地址，米游社来源包含临时签名
     video_url: String,
+    /// 视频播放方式，direct 或 embed
+    video_playback: VideoPlaybackResponse,
 }
 
 impl NewsVideoResponse {
     /// 创建新闻视频播放地址响应
-    pub(crate) fn new(video_url: String) -> Self {
-        Self { video_url }
+    pub(crate) fn new(video_url: String, video_playback: VideoPlayback) -> Self {
+        Self {
+            video_url,
+            video_playback: video_playback.into(),
+        }
     }
 }
 
@@ -381,6 +409,7 @@ impl NewsItemResponse {
         game_cover: Option<&str>,
         asset_base_url: &str,
     ) -> Self {
+        let video_playback = effective_video_playback(&value).map(VideoPlaybackResponse::from);
         // 米游社保存的是未签名地址，公开响应只暴露专用播放接口
         let video_url = if value.source_id == "mys" {
             None
@@ -406,15 +435,28 @@ impl NewsItemResponse {
                 .map(NewsCharacterResponse::from)
                 .collect(),
             video_url,
+            video_playback,
             video_duration: value.video_duration_ms.and_then(video_duration_seconds),
             intro: value.intro,
         }
     }
 }
 
+/// 为旧数据补全缺省的直接播放方式
+fn effective_video_playback(value: &NewsSummary) -> Option<VideoPlayback> {
+    value.video_playback.or_else(|| {
+        (value.news_type == "video"
+            && value
+                .video_url
+                .as_deref()
+                .is_some_and(|url| !url.trim().is_empty()))
+        .then_some(VideoPlayback::Direct)
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use akasha_application::news::{NewsDetailResult, NewsSummary};
+    use akasha_application::news::{NewsDetailResult, NewsSummary, VideoPlayback};
     use chrono::DateTime;
 
     use super::{NewsDetailResponse, NewsItemResponse, NewsVideoResponse};
@@ -433,6 +475,7 @@ mod tests {
             tags: Vec::new(),
             characters: Vec::new(),
             video_url: video_url.map(ToOwned::to_owned),
+            video_playback: video_url.map(|_| VideoPlayback::Direct),
             video_duration_ms: None,
             intro: None,
         }
@@ -466,6 +509,23 @@ mod tests {
         assert_eq!(
             response.video_url.as_deref(),
             Some("https://video.example/news-1.mp4")
+        );
+    }
+
+    /// 嵌入视频在公开新闻响应中保留显式播放方式
+    #[test]
+    fn exposes_embed_video_playback() {
+        let mut value = summary("web_os_zh_tw", Some("https://www.youtube.com/watch?v=test"));
+        value.video_playback = Some(VideoPlayback::Embed);
+
+        let response = NewsItemResponse::from_summary(value, None, "https://assets.example.com");
+        let value = serde_json::to_value(response).expect("新闻响应应可序列化");
+
+        assert_eq!(
+            value
+                .get("video_playback")
+                .and_then(serde_json::Value::as_str),
+            Some("embed")
         );
     }
 
@@ -511,13 +571,22 @@ mod tests {
     /// 播放接口只返回当前视频地址
     #[test]
     fn video_response_only_contains_video_url() {
-        let response = NewsVideoResponse::new("https://video.example/current.mp4".to_owned());
+        let response = NewsVideoResponse::new(
+            "https://video.example/current.mp4".to_owned(),
+            VideoPlayback::Direct,
+        );
         let value = serde_json::to_value(response).expect("视频响应应可序列化");
 
-        assert_eq!(value.as_object().map(|object| object.len()), Some(1));
+        assert_eq!(value.as_object().map(|object| object.len()), Some(2));
         assert_eq!(
             value.get("video_url").and_then(serde_json::Value::as_str),
             Some("https://video.example/current.mp4")
+        );
+        assert_eq!(
+            value
+                .get("video_playback")
+                .and_then(serde_json::Value::as_str),
+            Some("direct")
         );
     }
 }

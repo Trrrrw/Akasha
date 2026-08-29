@@ -83,6 +83,12 @@ const NEWS_SOURCE_SEEDS: &[NewsSourceSeed] = &[
         index: 2,
     },
     NewsSourceSeed {
+        id: "web_os_zh_tw",
+        game_id: "ys",
+        name: "国际服官网（繁体中文）",
+        index: 3,
+    },
+    NewsSourceSeed {
         id: "web_cn",
         game_id: "sr",
         name: "官方网站",

@@ -47,6 +47,9 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
+      - name: Run tests
+        run: cargo test --workspace --all-features --locked
+
   container:
     name: Build backend image
     if: github.event_name == 'pull_request'
