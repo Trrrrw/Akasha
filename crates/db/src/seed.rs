@@ -148,6 +148,12 @@ const NEWS_SOURCE_SEEDS: &[NewsSourceSeed] = &[
         name: "官方网站",
         index: 1,
     },
+    NewsSourceSeed {
+        id: "web_os_en_us",
+        game_id: "nodusfall",
+        name: "国际服官网（英语）",
+        index: 2,
+    },
 ];
 
 /// 写入服务运行所需的游戏和新闻来源基础数据

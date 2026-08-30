@@ -413,6 +413,15 @@ mod tests {
         assert_eq!(source.name, "官方网站");
         assert_eq!(source.index, 1);
 
+        let source =
+            news_sources::Entity::find_by_id(("web_os_en_us".to_owned(), "nodusfall".to_owned()))
+                .one(db.conn())
+                .await
+                .expect("Nodusfall overseas English source seed should be queryable")
+                .expect("Nodusfall overseas English source should be seeded");
+        assert_eq!(source.name, "国际服官网（英语）");
+        assert_eq!(source.index, 2);
+
         let source = news_sources::Entity::find_by_id(("web_os_zh_tw".to_owned(), "ys".to_owned()))
             .one(db.conn())
             .await
