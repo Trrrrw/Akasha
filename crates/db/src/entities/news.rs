@@ -12,6 +12,16 @@ pub enum NewsType {
     Video,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
+pub enum VideoPlayback {
+    #[sea_orm(string_value = "direct")]
+    Direct,
+
+    #[sea_orm(string_value = "embed")]
+    Embed,
+}
+
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "news")]
@@ -30,6 +40,7 @@ pub struct Model {
     pub cover: Option<String>,
     pub news_type: NewsType,
     pub video_url: Option<String>,
+    pub video_playback: Option<VideoPlayback>,
     /// 视频时长，单位为毫秒
     pub video_duration_ms: Option<i64>,
     pub raw_data: Json,

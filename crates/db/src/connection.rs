@@ -288,7 +288,7 @@ mod tests {
         game_versions::{GameVersionInput, SyncGameVersionsCommand},
         news::{
             ListNewsFilter, NewsCharacter, NewsCharacterInput, NewsFeedFilter, NewsFilter,
-            NewsOrder, UpdateNewsCommand,
+            NewsOrder, UpdateNewsCommand, VideoPlayback,
         },
         search::TextQuery,
     };
@@ -412,6 +412,14 @@ mod tests {
                 .expect("Nodusfall web source should be seeded");
         assert_eq!(source.name, "官方网站");
         assert_eq!(source.index, 1);
+
+        let source = news_sources::Entity::find_by_id(("web_os_zh_tw".to_owned(), "ys".to_owned()))
+            .one(db.conn())
+            .await
+            .expect("Genshin overseas Traditional Chinese source seed should be queryable")
+            .expect("Genshin overseas Traditional Chinese source should be seeded");
+        assert_eq!(source.name, "国际服官网（繁体中文）");
+        assert_eq!(source.index, 3);
     }
 
     #[tokio::test]
@@ -633,6 +641,7 @@ mod tests {
                 cover: None,
                 news_type: "article".to_owned(),
                 video_url: None,
+                video_playback: None,
                 video_duration_ms: None,
                 tags: Vec::new(),
                 characters: Some(vec![NewsCharacterInput {
@@ -680,6 +689,46 @@ mod tests {
         assert!(summary.characters.is_empty());
     }
 
+    /// 嵌入视频播放方式在数据库和应用模型之间保持一致
+    #[tokio::test]
+    async fn writes_and_reads_embed_video_playback() {
+        let db = Db::init(DbOptions {
+            sqlite_path: ":memory:".to_owned(),
+        })
+        .await
+        .expect("SQLite schema and seed data should initialize");
+
+        repositories::news::update_news(
+            &db,
+            UpdateNewsCommand {
+                game_id: "ys".to_owned(),
+                source_id: "web_os_zh_tw".to_owned(),
+                id: "video-1".to_owned(),
+                title: "嵌入影片".to_owned(),
+                intro: None,
+                publish_time: Utc::now().fixed_offset(),
+                source_url: "https://genshin.hoyoverse.com/zh-tw/news/detail/video-1".to_owned(),
+                cover: None,
+                news_type: "video".to_owned(),
+                video_url: Some("https://www.youtube.com/watch?v=test".to_owned()),
+                video_playback: Some(VideoPlayback::Embed),
+                video_duration_ms: None,
+                tags: Vec::new(),
+                characters: Some(Vec::new()),
+                raw_data: json!({}),
+                audit: audit_context(),
+            },
+        )
+        .await
+        .expect("embed video should be written");
+
+        let summary = repositories::news::find_by_id(&db, "ys", "web_os_zh_tw", "video-1")
+            .await
+            .expect("embed video should be queryable")
+            .expect("embed video should exist");
+        assert_eq!(summary.video_playback, Some(VideoPlayback::Embed));
+    }
+
     /// 验证重复提交完全相同的新闻不会产生物理更新或新审计记录
     #[tokio::test]
     async fn skips_unchanged_news_writes() {
@@ -699,6 +748,7 @@ mod tests {
             cover: None,
             news_type: "article".to_owned(),
             video_url: None,
+            video_playback: None,
             video_duration_ms: None,
             tags: Vec::new(),
             characters: Some(Vec::new()),
@@ -776,6 +826,7 @@ mod tests {
                     cover: None,
                     news_type: "article".to_owned(),
                     video_url: None,
+                    video_playback: None,
                     video_duration_ms: None,
                     tags: Vec::new(),
                     characters,

@@ -1,4 +1,4 @@
-use akasha_application::news::NewsSummary;
+use akasha_application::news::{NewsSummary, VideoPlayback};
 use chrono::Utc;
 use rss::{ChannelBuilder, GuidBuilder, ItemBuilder};
 
@@ -35,6 +35,7 @@ pub(super) fn build(
                     news.intro,
                     public_asset_url(asset_base_url, news.cover.or_else(|| game_cover.clone())),
                     news.video_url,
+                    news.video_playback,
                     news.news_type,
                 ));
 
@@ -64,6 +65,7 @@ fn description(
     intro: Option<String>,
     cover: Option<String>,
     video_url: Option<String>,
+    video_playback: Option<VideoPlayback>,
     news_type: String,
 ) -> String {
     let mut parts = Vec::new();
@@ -79,10 +81,12 @@ fn description(
     if news_type == "video"
         && let Some(video_url) = video_url
     {
-        parts.push(format!(
-            r#"<video controls src="{}"></video>"#,
-            escape_html_attribute(&video_url)
-        ));
+        let video_url = escape_html_attribute(&video_url);
+        if video_playback == Some(VideoPlayback::Embed) {
+            parts.push(format!(r#"<a href="{video_url}">观看视频</a>"#));
+        } else {
+            parts.push(format!(r#"<video controls src="{video_url}"></video>"#));
+        }
     }
 
     if !intro.is_empty() {
@@ -104,6 +108,8 @@ fn escape_html_attribute(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use akasha_application::news::VideoPlayback;
+
     use super::description;
 
     /// RSS 媒体地址不能逃逸 HTML 属性
@@ -113,11 +119,29 @@ mod tests {
             Some("<p>介绍</p>".to_owned()),
             Some("https://example.com/image.jpg?x=1&y=\"bad\"".to_owned()),
             Some("https://example.com/video.mp4?a=1&b='bad'".to_owned()),
+            Some(VideoPlayback::Direct),
             "video".to_owned(),
         );
 
         assert!(rendered.contains("x=1&amp;y=&quot;bad&quot;"));
         assert!(rendered.contains("a=1&amp;b=&#39;bad&#39;"));
         assert!(!rendered.contains("y=\"bad\""));
+    }
+
+    /// 嵌入视频在 RSS 中降级为普通链接
+    #[test]
+    fn renders_embed_video_as_link() {
+        let rendered = description(
+            None,
+            None,
+            Some("https://www.youtube.com/watch?v=test".to_owned()),
+            Some(VideoPlayback::Embed),
+            "video".to_owned(),
+        );
+
+        assert!(rendered.contains("<a href="));
+        assert!(rendered.contains("观看视频"));
+        assert!(!rendered.contains("<video"));
+        assert!(!rendered.contains("<iframe"));
     }
 }

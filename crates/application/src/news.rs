@@ -6,6 +6,23 @@ use crate::{
     search::TextQuery,
 };
 
+/// 视频地址对应的客户端播放方式
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoPlayback {
+    Direct,
+    Embed,
+}
+
+impl VideoPlayback {
+    /// 返回稳定的 API 和数据库字符串值
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Embed => "embed",
+        }
+    }
+}
+
 /// 视频详情默认返回的相关视频数量
 const RELATED_VIDEO_LIMIT: u64 = 8;
 
@@ -84,6 +101,7 @@ pub struct NewsSummary {
     /// 标题或正文命中的游戏角色
     pub characters: Vec<NewsCharacter>,
     pub video_url: Option<String>,
+    pub video_playback: Option<VideoPlayback>,
     /// 视频时长，单位为毫秒
     pub video_duration_ms: Option<i64>,
     pub intro: Option<String>,
@@ -124,6 +142,7 @@ pub struct NewsRawItem {
     pub news_type: String,
     pub tags: Vec<String>,
     pub video_url: Option<String>,
+    pub video_playback: Option<VideoPlayback>,
     pub video_duration_ms: Option<i64>,
     pub raw_data: Value,
 }
@@ -219,6 +238,7 @@ pub struct UpdateNewsCommand {
     pub cover: Option<String>,
     pub news_type: String,
     pub video_url: Option<String>,
+    pub video_playback: Option<VideoPlayback>,
     /// 视频时长，单位为毫秒
     pub video_duration_ms: Option<i64>,
     pub tags: Vec<String>,

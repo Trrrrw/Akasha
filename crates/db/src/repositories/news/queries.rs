@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use akasha_application::news::{
     ListNewsFilter, ListNewsRawFilter, NewsCharacter, NewsFeedFilter, NewsFilter, NewsOrder,
-    NewsRawItem, NewsSource, NewsSummary, RecentNews,
+    NewsRawItem, NewsSource, NewsSummary, RecentNews, VideoPlayback,
 };
 use chrono::Utc;
 use sea_orm::{
@@ -688,6 +688,7 @@ fn into_summary(
         tags,
         characters,
         video_url: row.video_url,
+        video_playback: row.video_playback.map(app_video_playback),
         video_duration_ms: row.video_duration_ms,
         intro: row.intro,
     }
@@ -705,7 +706,16 @@ fn into_raw_item(row: news::Model, tags: Vec<String>) -> NewsRawItem {
         news_type: row.news_type.to_value(),
         tags,
         video_url: row.video_url,
+        video_playback: row.video_playback.map(app_video_playback),
         video_duration_ms: row.video_duration_ms,
         raw_data: row.raw_data,
+    }
+}
+
+/// 将数据库播放方式转换为应用层枚举
+const fn app_video_playback(value: news::VideoPlayback) -> VideoPlayback {
+    match value {
+        news::VideoPlayback::Direct => VideoPlayback::Direct,
+        news::VideoPlayback::Embed => VideoPlayback::Embed,
     }
 }

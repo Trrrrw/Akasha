@@ -1,6 +1,7 @@
 use akasha_application::news::{
     ListNewsRawFilter, NewsCharacterInput, NewsCharacterUpdate, NewsTagInput, NewsTagUpdate,
     ReplaceNewsCharactersCommand, ReplaceNewsTagsCommand, SyncNewsTagsCommand, UpdateNewsCommand,
+    VideoPlayback,
 };
 use axum::{
     Json,
@@ -38,6 +39,7 @@ pub(crate) struct UpdateNewsRequest {
     cover: Option<String>,
     news_type: String,
     video_url: Option<String>,
+    video_playback: Option<String>,
     /// 视频时长，单位为毫秒
     video_duration_ms: Option<i64>,
     tags: Vec<String>,
@@ -80,6 +82,7 @@ pub(crate) struct NewsRawItemResponse {
     news_type: String,
     tags: Vec<String>,
     video_url: Option<String>,
+    video_playback: Option<String>,
     video_duration_ms: Option<i64>,
     raw_data: Value,
 }
@@ -155,6 +158,9 @@ impl From<akasha_application::news::NewsRawItem> for NewsRawItemResponse {
             news_type: value.news_type,
             tags: value.tags,
             video_url: value.video_url,
+            video_playback: value
+                .video_playback
+                .map(|playback| playback.as_str().to_owned()),
             video_duration_ms: value.video_duration_ms,
             raw_data: value.raw_data,
         }
@@ -171,6 +177,11 @@ pub(crate) async fn update_news(
 ) -> Result<impl IntoResponse, AppError> {
     let source_id = normalized_source_id(&body.source_id)?;
     let news_type = normalized_news_type(&body.news_type)?;
+    let video_playback = normalized_video_playback(
+        body.video_playback.as_deref(),
+        &news_type,
+        body.video_url.as_deref(),
+    )?;
     require_news_source(&state, &game_id, &source_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
     let news_id = body.id.clone();
@@ -187,6 +198,7 @@ pub(crate) async fn update_news(
             cover: body.cover,
             news_type,
             video_url: body.video_url,
+            video_playback,
             video_duration_ms: body.video_duration_ms,
             tags: body.tags,
             characters: body.characters.map(|characters| {
@@ -467,4 +479,67 @@ fn normalized_news_type(value: &str) -> Result<String, AppError> {
 
 fn normalized_optional_news_type(value: Option<String>) -> Result<Option<String>, AppError> {
     value.as_deref().map(normalized_news_type).transpose()
+}
+
+/// 校验并兼容旧写入客户端缺省的视频播放方式
+fn normalized_video_playback(
+    value: Option<&str>,
+    news_type: &str,
+    video_url: Option<&str>,
+) -> Result<Option<VideoPlayback>, AppError> {
+    let has_video_url = video_url.is_some_and(|url| !url.trim().is_empty());
+    let playback = match value.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("direct") => Some(VideoPlayback::Direct),
+        Some("embed") => Some(VideoPlayback::Embed),
+        Some(_) => {
+            return Err(AppError::BadRequest(
+                "video_playback must be direct or embed".to_owned(),
+            ));
+        }
+        None if news_type == "video" && has_video_url => Some(VideoPlayback::Direct),
+        None => None,
+    };
+
+    if playback.is_some() && news_type != "video" {
+        return Err(AppError::BadRequest(
+            "video_playback is only valid for video news".to_owned(),
+        ));
+    }
+    if playback.is_some() && !has_video_url {
+        return Err(AppError::BadRequest(
+            "video_playback requires video_url".to_owned(),
+        ));
+    }
+
+    Ok(playback)
+}
+
+#[cfg(test)]
+mod tests {
+    use akasha_application::news::VideoPlayback;
+
+    use super::normalized_video_playback;
+    use crate::http::error::AppError;
+
+    /// 旧视频写入缺省播放方式时保持直接播放兼容语义
+    #[test]
+    fn defaults_existing_video_contract_to_direct_playback() {
+        assert_eq!(
+            normalized_video_playback(None, "video", Some("https://example.com/video.mp4"))
+                .expect("legacy video request should remain valid"),
+            Some(VideoPlayback::Direct)
+        );
+    }
+
+    /// 嵌入播放必须同时提供视频地址
+    #[test]
+    fn rejects_embed_playback_without_video_url() {
+        let error = normalized_video_playback(Some("embed"), "video", None)
+            .expect_err("embed playback without URL should be rejected");
+
+        assert!(matches!(
+            error,
+            AppError::BadRequest(message) if message == "video_playback requires video_url"
+        ));
+    }
 }
