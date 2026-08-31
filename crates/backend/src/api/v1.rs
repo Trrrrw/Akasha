@@ -137,6 +137,7 @@ mod tests {
             .as_object()
             .expect("应包含响应模型");
         assert!(schemas.contains_key("GameResponse"));
+        assert!(schemas.contains_key("GameIconVariantResponse"));
         assert!(schemas.contains_key("GameVersionResponse"));
         assert!(!schemas.contains_key("GameDetailResponse"));
         let game_version_properties = schemas["GameVersionResponse"]["properties"]
@@ -157,6 +158,11 @@ mod tests {
             schemas["NewsItemResponse"]["properties"]
                 .get("source_id")
                 .is_none()
+        );
+        assert!(
+            schemas["GameResponse"]["properties"]
+                .get("icon_variants")
+                .is_some()
         );
 
         for path in [
