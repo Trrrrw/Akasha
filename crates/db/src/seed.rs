@@ -116,13 +116,13 @@ const NEWS_SOURCE_SEEDS: &[NewsSourceSeed] = &[
         id: "web_cn",
         game_id: "planet",
         name: "官方网站",
-        index: 1,
+        index: 2,
     },
     NewsSourceSeed {
         id: "mys",
         game_id: "planet",
         name: "米游社",
-        index: 2,
+        index: 1,
     },
     NewsSourceSeed {
         id: "mys",
