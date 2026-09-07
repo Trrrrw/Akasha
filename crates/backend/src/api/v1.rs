@@ -79,19 +79,21 @@ mod tests {
         );
         assert!(!paths.keys().any(|path| path.ends_with("/data/character")));
         assert!(!paths.contains_key("/api/v1/games/ys/characters"));
-        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/character-birthdays"));
-        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/character-birthdays.ics"));
-        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/events"));
-        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/events.ics"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/capabilities"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/calendar.ics"));
+        assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar/character-birthdays"));
+        assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar/character-birthdays.ics"));
+        assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar/events"));
+        assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar/events.ics"));
         assert!(!paths.contains_key("/api/v1/games/{game_id}/events"));
-        assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar"));
         assert!(!paths.contains_key("/api/v1/games/{game_id}/calendar/ics"));
         assert!(!paths.contains_key("/api/v1/games/{game_id}/chars"));
         assert!(!paths.keys().any(|path| path.contains("/admin/")));
         assert!(!paths.keys().any(|path| path.contains("/auth/")));
 
         let event_ics_parameters =
-            paths["/api/v1/games/{game_id}/calendar/events.ics"]["get"]["parameters"]
+            paths["/api/v1/games/{game_id}/calendar.ics"]["get"]["parameters"]
                 .as_array()
                 .expect("活动 ICS 应记录查询参数");
         let event_ics_parameter_names = event_ics_parameters
@@ -101,7 +103,8 @@ mod tests {
         for name in [
             "from",
             "to",
-            "kind",
+            "include",
+            "exclude",
             "event_mode",
             "start_reminder_minutes",
             "end_reminder_minutes",
@@ -112,24 +115,16 @@ mod tests {
             );
         }
 
-        let birthday_ics_parameters =
-            paths["/api/v1/games/{game_id}/calendar/character-birthdays.ics"]["get"]["parameters"]
-                .as_array()
-                .expect("角色生日 ICS 应记录查询参数");
-        let birthday_ics_parameter_names = birthday_ics_parameters
-            .iter()
-            .filter_map(|parameter| parameter["name"].as_str())
-            .collect::<Vec<_>>();
-        for name in [
-            "q",
-            "birthday_month",
-            "gender",
-            "reminder_time",
-            "reminder_minutes_before",
-        ] {
+        for name in ["birthday_reminder_time", "birthday_reminder_minutes_before"] {
             assert!(
-                birthday_ics_parameter_names.contains(&name),
+                event_ics_parameter_names.contains(&name),
                 "角色生日 ICS 缺少 {name} 参数"
+            );
+        }
+        for name in ["limit", "offset"] {
+            assert!(
+                !event_ics_parameter_names.contains(&name),
+                "ICS 不应公开 JSON 分页参数 {name}"
             );
         }
 
