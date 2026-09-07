@@ -14,7 +14,6 @@ pub struct Model {
     pub name: Option<String>,
     pub start_time: DateTimeWithTimeZone,
     pub end_time: Option<DateTimeWithTimeZone>,
-    pub time_status: String,
     pub source_id: String,
     pub source_news_id: String,
     pub source_hash: String,

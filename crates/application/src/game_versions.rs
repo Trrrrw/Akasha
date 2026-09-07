@@ -10,7 +10,6 @@ pub struct GameVersion {
     pub name: Option<String>,
     pub start_time: DateTime<FixedOffset>,
     pub end_time: Option<DateTime<FixedOffset>>,
-    pub time_status: String,
     pub source_id: String,
     pub source_news_id: String,
     pub source_hash: String,
@@ -22,7 +21,6 @@ pub struct GameVersionInput {
     pub id: String,
     pub name: Option<String>,
     pub start_time: DateTime<FixedOffset>,
-    pub time_status: String,
     pub source_id: String,
     pub source_news_id: String,
     pub source_hash: String,
@@ -78,7 +76,6 @@ fn validate_sync_command(command: &SyncGameVersionsCommand) -> Result<(), Applic
         if version.id.trim().is_empty()
             || version.source_news_id.trim().is_empty()
             || version.source_hash.trim().is_empty()
-            || !matches!(version.time_status.as_str(), "scheduled" | "confirmed")
         {
             return Err(ApplicationError::InvalidInput(
                 "invalid game version projection".to_owned(),
