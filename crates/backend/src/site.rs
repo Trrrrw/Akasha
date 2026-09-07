@@ -2,8 +2,11 @@ use std::path::PathBuf;
 
 use axum::{
     Router,
-    http::{HeaderValue, header::CACHE_CONTROL},
-    response::{Redirect, Response},
+    http::{
+        HeaderValue,
+        header::{CACHE_CONTROL, CONTENT_TYPE},
+    },
+    response::{IntoResponse, Redirect, Response},
     routing::get,
 };
 use tower_http::{
@@ -12,6 +15,7 @@ use tower_http::{
 };
 
 const STATIC_CACHE_CONTROL: &str = "public, max-age=86400";
+const LLMS_TXT: &str = include_str!("../../../assets/llms.txt");
 
 /// 构建公开静态资源路由
 pub fn router<S>(game_data_asset_dir: PathBuf) -> Router<S>
@@ -21,6 +25,7 @@ where
     let static_assets = Router::new()
         // 显式提供站点图标，供浏览器和 RSS 阅读器读取
         .route_service("/favicon.ico", ServeFile::new("assets/favicon.ico"))
+        .route("/llms.txt", get(llms_txt))
         .route_service("/robots.txt", ServeFile::new("assets/robots.txt"))
         .nest_service("/assets/game-data", ServeDir::new(game_data_asset_dir))
         .nest_service("/assets", ServeDir::new("assets"))
@@ -42,13 +47,18 @@ async fn root() -> Redirect {
     Redirect::permanent("/scalar")
 }
 
+/// 返回面向 Agent 的 Skill 安装入口
+async fn llms_txt() -> impl IntoResponse {
+    ([(CONTENT_TYPE, "text/plain; charset=utf-8")], LLMS_TXT)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
     use axum::{
         Router,
-        body::Body,
+        body::{Body, to_bytes},
         http::{Request, StatusCode, header::CACHE_CONTROL},
     };
     use tower::ServiceExt;
@@ -93,6 +103,30 @@ mod tests {
             .expect("根路径请求应成功");
 
         assert!(response.headers().get(CACHE_CONTROL).is_none());
+    }
+
+    #[tokio::test]
+    async fn directs_agents_to_the_public_skill_installation_guide() {
+        let app: Router = router(std::env::temp_dir());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/llms.txt")
+                    .body(Body::empty())
+                    .expect("应构造请求"),
+            )
+            .await
+            .expect("llms.txt 请求应成功");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 8 * 1024)
+            .await
+            .expect("应读取 llms.txt");
+        let body = String::from_utf8(body.to_vec()).expect("llms.txt 应为 UTF-8");
+        assert!(body.contains(
+            "https://raw.githubusercontent.com/Trrrrw/Akasha/refs/heads/main/skills/README.md"
+        ));
+        assert!(body.contains("优先通过 Skill 完成任务"));
     }
 
     #[tokio::test]
