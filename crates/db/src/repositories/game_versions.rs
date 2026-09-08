@@ -63,7 +63,6 @@ pub async fn sync(
                             name: version.name,
                             start_time: version.start_time,
                             end_time: existing.and_then(|row| row.end_time),
-                            time_status: version.time_status,
                             source_id: version.source_id,
                             source_news_id: version.source_news_id,
                             source_hash: version.source_hash,
@@ -171,7 +170,6 @@ fn version_upsert() -> OnConflict {
         .update_columns([
             game_versions::Column::Name,
             game_versions::Column::StartTime,
-            game_versions::Column::TimeStatus,
             game_versions::Column::SourceId,
             game_versions::Column::SourceNewsId,
             game_versions::Column::SourceHash,
@@ -183,7 +181,6 @@ fn version_upsert() -> OnConflict {
 fn version_changed(existing: &game_versions::Model, incoming: &game_versions::Model) -> bool {
     existing.name != incoming.name
         || existing.start_time != incoming.start_time
-        || existing.time_status != incoming.time_status
         || existing.source_id != incoming.source_id
         || existing.source_news_id != incoming.source_news_id
         || existing.source_hash != incoming.source_hash
@@ -205,7 +202,6 @@ impl From<game_versions::Model> for GameVersion {
             name: row.name,
             start_time: row.start_time,
             end_time: row.end_time,
-            time_status: row.time_status,
             source_id: row.source_id,
             source_news_id: row.source_news_id,
             source_hash: row.source_hash,

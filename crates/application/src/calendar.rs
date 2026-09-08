@@ -2,7 +2,7 @@ use chrono::{DateTime, FixedOffset};
 
 use crate::{ApplicationError, ApplicationRepository, ApplicationServices, audit::AuditContext};
 
-/// 游戏日历中的一条活动
+/// 游戏日历中的一条可持久化日程
 #[derive(Debug, Clone)]
 pub struct CalendarEvent {
     pub game_id: String,
@@ -21,7 +21,7 @@ pub struct CalendarEvent {
     pub source_hash: String,
 }
 
-/// 公共活动日历的数据库筛选条件
+/// 公共日程的数据库筛选条件
 #[derive(Debug, Clone)]
 pub struct ListCalendarEventsFilter {
     pub game_id: String,
@@ -31,7 +31,7 @@ pub struct ListCalendarEventsFilter {
     pub limit: u64,
 }
 
-/// Worker 提交的活动投影
+/// Worker 提交的日程投影
 #[derive(Debug, Clone)]
 pub struct CalendarEventInput {
     pub id: String,
@@ -49,7 +49,7 @@ pub struct CalendarEventInput {
     pub source_hash: String,
 }
 
-/// 同步一个游戏活动投影的命令
+/// 同步一个游戏日程投影的命令
 #[derive(Debug, Clone)]
 pub struct SyncCalendarEventsCommand {
     pub game_id: String,
@@ -71,7 +71,7 @@ impl<R> ApplicationServices<R>
 where
     R: ApplicationRepository,
 {
-    /// 查询指定时间范围内的公开游戏活动
+    /// 查询指定时间范围内的公开游戏日程
     pub async fn list_calendar_events(
         &self,
         filter: ListCalendarEventsFilter,
@@ -84,7 +84,7 @@ where
         Ok(self.repository.list_calendar_events(filter).await?)
     }
 
-    /// 校验并同步一个游戏的活动投影
+    /// 校验并同步一个游戏的日程投影
     pub async fn sync_calendar_events(
         &self,
         command: SyncCalendarEventsCommand,
@@ -108,7 +108,7 @@ fn validate_sync_command(command: &SyncCalendarEventsCommand) -> Result<(), Appl
             || event.start_time >= event.end_time
             || !matches!(
                 event.kind.as_str(),
-                "game_activity" | "banner" | "web_activity"
+                "游戏内活动" | "网页活动" | "版本日程" | "卡池" | "通行证"
             )
         {
             return Err(ApplicationError::InvalidInput(

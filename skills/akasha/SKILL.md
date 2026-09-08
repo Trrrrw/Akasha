@@ -16,7 +16,7 @@ description: "Query Akasha's public API for current Genshin Impact, Honkai: Star
 ## 工作流
 
 1. 使用用户指定的服务地址，否则使用默认根地址。辅助脚本也支持 `AKASHA_BASE_URL` 和 `--base-url`
-2. 仅在标识未知时发现能力：游戏 ID 查询 `/api/v1/games`，数据集合查询 `/api/v1/games/{game_id}/data`，新闻来源查询 `/api/v1/games/{game_id}/news/sources`
+2. 仅在标识未知时发现能力：游戏 ID 查询 `/api/v1/games`，数据集合查询 `/api/v1/games/{game_id}/data`，新闻来源查询 `/api/v1/games/{game_id}/news/sources`，日程筛选值查询 `/api/v1/games/{game_id}/calendar/capabilities`
 3. 优先使用服务端筛选和分页，只获取完成任务所需的页数
 4. 从 Skill base directory 运行通用脚本；若 Python 不可用，使用能保留重复 query 参数的等价 HTTP 客户端
 

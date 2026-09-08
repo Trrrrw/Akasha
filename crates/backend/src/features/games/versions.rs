@@ -27,8 +27,6 @@ pub(super) struct GameVersionResponse {
     start_time: String,
     /// UTC RFC 3339 格式的版本结束时间，最新版本可能为空
     end_time: Option<String>,
-    /// 时间状态
-    time_status: String,
 }
 
 #[utoipa::path(
@@ -71,7 +69,6 @@ impl From<GameVersion> for GameVersionResponse {
             name: value.name,
             start_time: utc_timestamp(value.start_time),
             end_time: value.end_time.map(utc_timestamp),
-            time_status: value.time_status,
         }
     }
 }

@@ -24,7 +24,7 @@ const MAX_LABELS_PER_EVENT: usize = 16;
 #[derive(Deserialize)]
 pub(crate) struct SyncCalendarEventsRequest {
     replace: bool,
-    events: Vec<CalendarEventRequest>,
+    entries: Vec<CalendarEventRequest>,
     audit: Option<AuditRequest>,
 }
 
@@ -47,14 +47,14 @@ struct CalendarEventRequest {
 
 #[derive(Serialize)]
 pub(crate) struct SyncCalendarEventsResponse {
-    events_created: u64,
-    events_updated: u64,
-    events_deleted: u64,
+    entries_created: u64,
+    entries_updated: u64,
+    entries_deleted: u64,
     changed: bool,
 }
 
-/// 同步一个游戏的活动投影
-pub(crate) async fn sync_events(
+/// 同步一个游戏的日程投影
+pub(crate) async fn sync_entries(
     actor: DataWriteActor,
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -70,7 +70,7 @@ pub(crate) async fn sync_events(
             game_id,
             replace: body.replace,
             events: body
-                .events
+                .entries
                 .into_iter()
                 .map(CalendarEventInput::from)
                 .collect(),
@@ -81,18 +81,18 @@ pub(crate) async fn sync_events(
 }
 
 fn validate_request(body: &SyncCalendarEventsRequest) -> Result<(), AppError> {
-    if body.events.len() > MAX_EVENTS_PER_SYNC {
+    if body.entries.len() > MAX_EVENTS_PER_SYNC {
         return Err(AppError::BadRequest(
             "calendar sync payload contains too many items".to_owned(),
         ));
     }
-    if body.events.iter().any(|event| {
+    if body.entries.iter().any(|event| {
         event.labels.len() > MAX_LABELS_PER_EVENT
             || event.title.chars().count() > 256
             || event.labels.iter().any(|label| label.chars().count() > 64)
     }) {
         return Err(AppError::BadRequest(
-            "calendar event fields exceed their limits".to_owned(),
+            "calendar entry fields exceed their limits".to_owned(),
         ));
     }
     Ok(())
@@ -121,9 +121,9 @@ impl From<CalendarEventRequest> for CalendarEventInput {
 impl From<SyncCalendarEventsResult> for SyncCalendarEventsResponse {
     fn from(value: SyncCalendarEventsResult) -> Self {
         Self {
-            events_created: value.events_created,
-            events_updated: value.events_updated,
-            events_deleted: value.events_deleted,
+            entries_created: value.events_created,
+            entries_updated: value.events_updated,
+            entries_deleted: value.events_deleted,
             changed: value.changed,
         }
     }

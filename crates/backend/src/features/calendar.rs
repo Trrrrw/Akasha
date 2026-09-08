@@ -14,15 +14,17 @@ pub(crate) fn public_router() -> OpenApiRouter<AppState> {
     use utoipa_axum::routes;
 
     OpenApiRouter::new()
-        .routes(routes!(endpoints::character_birthdays_json))
-        .routes(routes!(endpoints::character_birthdays_ics))
-        .routes(routes!(events::events_json))
-        .routes(routes!(events::events_ics))
+        .routes(routes!(events::calendar_capabilities))
+        .routes(routes!(events::calendar_json))
+        .routes(routes!(events::calendar_ics))
 }
 
-/// 构建活动投影的受保护管理路由
+/// 构建日程投影的受保护管理路由
 pub(crate) fn admin_router() -> Router<AppState> {
-    Router::new().route("/games/{game_id}/calendar/events", put(admin::sync_events))
+    Router::new().route(
+        "/games/{game_id}/calendar/entries",
+        put(admin::sync_entries),
+    )
 }
 
 /// 返回日历接口统一使用的中国标准时区

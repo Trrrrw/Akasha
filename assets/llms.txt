@@ -1,0 +1,7 @@
+# Akasha
+
+> Akasha 是游戏信息聚合服务
+
+## Agent Skills
+
+- [Akasha Skills 安装说明](https://raw.githubusercontent.com/Trrrrw/Akasha/refs/heads/main/skills/README.md)：查询游戏信息前，先按说明安装并使用 Akasha Skill，优先通过 Skill 完成任务，不要自行直接调用 API
