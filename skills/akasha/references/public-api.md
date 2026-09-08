@@ -173,35 +173,84 @@ GET /api/v1/games/{game_id}/news/{news_id}/media/video?source={source}
 
 ## 日历
 
-### 角色生日
+### 发现日程能力
 
 ```http
-GET /api/v1/games/{game_id}/calendar/character-birthdays
-GET /api/v1/games/{game_id}/calendar/character-birthdays.ics
+GET /api/v1/games/{game_id}/calendar/capabilities
+```
+
+在构造 JSON 查询或 ICS 订阅地址前读取该接口。响应中的：
+
+- `json`：该游戏当前的 JSON 日程路径
+- `ics`：该游戏当前的 ICS 日程路径
+- `selectors`：可用于 `include` 和 `exclude` 的筛选值
+
+每个 selector 的 `value` 是一种日程类型，`children[].value` 是带细分类的完整筛选值。客户端可以显示 `label`，但发送查询时必须原样使用 `value`。不同游戏支持的 selector 和细分类可能不同，不要在 Agent 或客户端中硬编码列表
+
+角色生日也是统一日程中的一种 selector。需要生日数据或生日 ICS 时，从 capabilities 找到对应 `value`，再通过 `include` 选择它
+
+### 查询 JSON 日程
+
+```http
+GET /api/v1/games/{game_id}/calendar
 ```
 
 参数：
 
-- `q`：角色名称和简介查询
-- `birthday_month`：1 到 12
-- `gender`：`male` 或 `female`，仅 `zzz` 支持
+- `from`：查询开始日期，`YYYY-MM-DD`；JSON 默认是中国标准时间今天之前 30 天
+- `to`：不包含在查询范围内的结束日期，`YYYY-MM-DD`；默认是 `from` 后 366 天
+- `include`：可重复；未提供时包含 capabilities 中的全部日程，提供多个值时匹配其中任意一个
+- `exclude`：可重复；在 `include` 之后生效，匹配任意一个值的条目都会被排除
+- `limit`：默认 100，范围 1 到 500
+- `offset`：默认 0
 
-JSON 返回生日条目，ICS 返回每年重复的日历事件
+类型 selector 匹配该类型的全部条目，子 selector 只匹配该类型下具有相应 label 的条目。例如先 `include=游戏内活动`，再 `exclude=游戏内活动:七圣召唤`，表示保留游戏内活动但排除其中的七圣召唤日程。具体值仍须来自该游戏本次返回的 capabilities；未知 selector 返回 `400`
 
-### 游戏活动
+日期范围必须为正且不超过 1100 天。普通日程只要与 `[from, to)` 相交就会返回；角色生日会按年份实例化到该范围内
 
-```http
-GET /api/v1/games/{game_id}/calendar/events
-GET /api/v1/games/{game_id}/calendar/events.ics
+响应使用分页外壳，`meta` 当前为 `null`：
+
+```json
+{
+  "total": 1,
+  "limit": 100,
+  "offset": 0,
+  "items": [
+    {
+      "id": "ENTRY_ID",
+      "kind": "SELECTOR_VALUE",
+      "title": "日程标题",
+      "start": "2026-01-01T03:00:00Z",
+      "end": "2026-01-10T19:59:00Z",
+      "all_day": false,
+      "version": "VERSION_ID",
+      "cover": "https://example.invalid/cover.png",
+      "labels": [],
+      "url": "https://example.invalid/source"
+    }
+  ],
+  "meta": null
+}
 ```
 
-参数：
+定时日程的 `start`、`end` 是 UTC RFC 3339。生日等全天日程使用 `YYYY-MM-DD`，且 `end` 是不包含在事件内的结束日期；此时 `all_day` 为 `true`。`version` 和 `cover` 可以为 `null`
 
-- `from`：开始日期，`YYYY-MM-DD`，默认包含最近 30 天
-- `to`：结束日期，`YYYY-MM-DD`，默认查询未来 366 天
-- `kind`：可重复使用，值为 `game_activity`、`banner` 或 `web_activity`
+### 导出 ICS 日程
 
-日期范围必须为正且不超过 1100 天。`to` 是查询边界，使用当前 OpenAPI 和返回结果确认具体包含关系
+```http
+GET /api/v1/games/{game_id}/calendar.ics
+```
+
+`from`、`to`、`include` 和 `exclude` 与 JSON 接口语义相同；ICS 默认从中国标准时间今天开始，忽略 JSON 的 `limit` 和 `offset`。角色生日会导出为每年重复的全天事件
+
+ICS 还支持：
+
+- `event_mode`：`span` 表示一个连续事件，`milestones` 表示开始和结束两个节点；默认 `span`
+- `start_reminder_minutes`、`end_reminder_minutes`：普通日程开始或结束前的提醒分钟数，最大 43200
+- `birthday_reminder_time`：生日当天提醒时间，格式为 `HH:MM`
+- `birthday_reminder_minutes_before`：生日当天 00:00 前的提醒分钟数，最大 43200
+
+响应是 `text/calendar`，不是 JSON
 
 ## 错误与限流
 

@@ -72,7 +72,7 @@ pub(super) struct CalendarCapabilitiesResponse {
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(super) struct CalendarQuery {
-    /// 查询开始日期，格式为 YYYY-MM-DD；JSON 默认包含最近 30 天，ICS 默认从今天开始
+    /// 查询开始日期，格式为 YYYY-MM-DD，默认包含最近 30 天
     from: Option<String>,
     /// 查询结束日期，格式为 YYYY-MM-DD，默认为开始日期后 366 天
     to: Option<String>,
@@ -93,7 +93,7 @@ pub(super) struct CalendarQuery {
 #[into_params(parameter_in = Query)]
 #[expect(dead_code, reason = "该类型只为 OpenAPI 描述 ICS 的公共筛选参数")]
 pub(super) struct CalendarFilterParams {
-    /// 查询开始日期，格式为 YYYY-MM-DD
+    /// 查询开始日期，格式为 YYYY-MM-DD，默认从今天开始
     from: Option<String>,
     /// 查询结束日期，格式为 YYYY-MM-DD
     to: Option<String>,

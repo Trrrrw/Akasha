@@ -8,9 +8,10 @@
 python scripts/akasha_api.py /api/v1/games
 python scripts/akasha_api.py /api/v1/games/ys/data
 python scripts/akasha_api.py /api/v1/games/ys/news/sources
+python scripts/akasha_api.py /api/v1/games/ys/calendar/capabilities
 ```
 
-先发现再查询可以避免猜错游戏 ID、集合或来源
+先发现再查询可以避免猜错游戏 ID、集合、来源或日程 selector。构造 Calendar 查询时使用 capabilities 返回的 `json`、`ics` 和 selector `value`，不要硬编码筛选值
 
 ## 搜索角色
 
@@ -85,39 +86,60 @@ python scripts/akasha_api.py /api/v1/games/ys/news/NEWS_ID \
   --query source=web_cn
 ```
 
-## 查询活动和卡池
+## 查询统一日程
 
-查询指定日期范围：
+先发现该游戏当前支持的筛选规则：
 
 ```bash
-python scripts/akasha_api.py /api/v1/games/ys/calendar/events \
+python scripts/akasha_api.py /api/v1/games/ys/calendar/capabilities
+```
+
+不添加筛选时查询指定日期范围内的全部日程，并使用 `limit`、`offset` 分页：
+
+```bash
+python scripts/akasha_api.py /api/v1/games/ys/calendar \
   --query from=2026-01-01 \
-  --query to=2026-02-01
+  --query to=2026-02-01 \
+  --query limit=100 \
+  --query offset=0
 ```
 
-只查询活动和卡池，重复传入 `kind`：
+只查询 capabilities 返回的两种类型时，重复传入 `include`。多个 `include` 是“匹配任意一个”：
 
 ```bash
-python scripts/akasha_api.py /api/v1/games/ys/calendar/events \
-  --query kind=game_activity \
-  --query kind=banner
+python scripts/akasha_api.py /api/v1/games/ys/calendar \
+  --query include=游戏内活动 \
+  --query include=卡池
 ```
 
-回答“当前进行中”时，应查询覆盖当前日期的范围，再根据每条记录的 `start_time` 和 `end_time` 判断，不要仅依赖标题或返回顺序
+先选择一类日程、再排除其中一个细分类时，重复参数按顺序传给脚本即可。`exclude` 在 `include` 之后生效：
+
+```bash
+python scripts/akasha_api.py /api/v1/games/ys/calendar \
+  --query include=游戏内活动 \
+  --query exclude=游戏内活动:七圣召唤
+```
+
+示例中的中文值仅用于展示参数结构；实际查询前应从目标游戏的 capabilities 读取完整 `value`
+
+回答“当前进行中”时，应查询覆盖当前日期的范围，再根据每条记录的 `start`、`end` 和 `all_day` 判断，不要仅依赖标题或返回顺序。响应包含 `total`、`limit`、`offset`、`items` 和 `meta`；若 `total > offset + limit`，保持全部筛选参数不变并增加 `offset`
 
 ## 查询生日
 
-查询某月全部角色生日：
+角色生日已整合进统一 Calendar。查询某月生日时，使用 capabilities 返回的角色生日 selector，并限定日期范围：
 
 ```bash
-python scripts/akasha_api.py /api/v1/games/zzz/calendar/character-birthdays \
-  --query birthday_month=7
+python scripts/akasha_api.py /api/v1/games/zzz/calendar \
+  --query include=角色生日 \
+  --query from=2026-07-01 \
+  --query to=2026-08-01
 ```
 
-导出生日 ICS：
+只导出生日 ICS：
 
 ```bash
-python scripts/akasha_api.py /api/v1/games/ys/calendar/character-birthdays.ics \
+python scripts/akasha_api.py /api/v1/games/ys/calendar.ics \
+  --query include=角色生日 \
   --output ys-birthdays.ics
 ```
 
@@ -129,8 +151,8 @@ python scripts/akasha_api.py /api/v1/games/sr/news/rss \
   --query limit=50 \
   --output sr-news.xml
 
-python scripts/akasha_api.py /api/v1/games/sr/calendar/events.ics \
-  --query kind=banner \
+python scripts/akasha_api.py /api/v1/games/sr/calendar.ics \
+  --query include=卡池 \
   --output sr-banners.ics
 ```
 
