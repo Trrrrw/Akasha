@@ -241,7 +241,7 @@ GET /api/v1/games/{game_id}/calendar
 GET /api/v1/games/{game_id}/calendar.ics
 ```
 
-`from`、`to`、`include` 和 `exclude` 与 JSON 接口语义相同；ICS 默认从中国标准时间今天开始，忽略 JSON 的 `limit` 和 `offset`。角色生日会导出为每年重复的全天事件
+`from`、`to`、`include` 和 `exclude` 与 JSON 接口语义相同；ICS 默认从中国标准时间今天开始，忽略 JSON 的 `limit` 和 `offset`。角色生日会导出为每年重复的全天事件；2 月 29 日生日按每年第 60 天重复，即闰年为 2 月 29 日、平年为 3 月 1 日
 
 ICS 还支持：
 

@@ -193,7 +193,7 @@ pub(super) fn append_birthdays_to_ics(
 
 fn birthday_recurrence(month: i16, day: i16) -> &'static str {
     if month == 2 && day == 29 {
-        "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1"
+        "FREQ=YEARLY;BYYEARDAY=60"
     } else {
         "FREQ=YEARLY"
     }
@@ -204,7 +204,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exports_recurring_leap_day_birthdays() {
+    fn exports_leap_day_birthdays_on_the_sixtieth_day() {
         let mut calendar = IcsCalendar::new("-//Akasha//Test//ZH-CN", "原神日程");
         append_birthdays_to_ics(
             &mut calendar,
@@ -223,6 +223,6 @@ mod tests {
         );
         let output = calendar.finish();
         assert!(output.contains("DTSTART;VALUE=DATE:20000229\r\n"));
-        assert!(output.contains("RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1\r\n"));
+        assert!(output.contains("RRULE:FREQ=YEARLY;BYYEARDAY=60\r\n"));
     }
 }
