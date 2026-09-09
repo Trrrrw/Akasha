@@ -241,7 +241,9 @@ GET /api/v1/games/{game_id}/calendar
 GET /api/v1/games/{game_id}/calendar.ics
 ```
 
-`from`、`to`、`include` 和 `exclude` 与 JSON 接口语义相同；ICS 默认从中国标准时间今天开始，忽略 JSON 的 `limit` 和 `offset`。角色生日会导出为每年重复的全天事件；2 月 29 日生日按每年第 60 天重复，即闰年为 2 月 29 日、平年为 3 月 1 日
+`from`、`to`、`include` 和 `exclude` 与 JSON 接口语义相同；ICS 默认从中国标准时间今天开始，忽略 JSON 的 `limit` 和 `offset`。角色生日会导出为每年重复的全天事件
+
+2 月 29 日生日在 JSON 与 ICS 中有意采用不同的平年日期。JSON 会直接物化每年的日期，因此平年显示为二月最后一天（2 月 28 日）；ICS 为兼容无法正确展开负数 `BYMONTHDAY` 的日历软件，改用每年第 60 天，即闰年为 2 月 29 日、平年为 3 月 1 日
 
 ICS 还支持：
 

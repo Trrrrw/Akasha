@@ -193,6 +193,7 @@ pub(super) fn append_birthdays_to_ics(
 
 fn birthday_recurrence(month: i16, day: i16) -> &'static str {
     if month == 2 && day == 29 {
+        // ICS 为兼容不支持负数 BYMONTHDAY 的日历客户端，平年落在 3 月 1 日
         "FREQ=YEARLY;BYYEARDAY=60"
     } else {
         "FREQ=YEARLY"

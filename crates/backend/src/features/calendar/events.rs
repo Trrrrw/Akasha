@@ -636,6 +636,7 @@ fn materialize_birthdays(
 
 fn birthday_date(year: i32, month: i16, day: i16) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month as u32, day as u32).or_else(|| {
+        // JSON 直接物化每年的日期，因此可以在平年精确回退到二月最后一天
         (month == 2 && day == 29)
             .then(|| NaiveDate::from_ymd_opt(year, 2, 28).expect("February 28 should be valid"))
     })
