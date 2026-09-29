@@ -2,7 +2,9 @@ use chrono::{DateTime, FixedOffset};
 
 use crate::{ApplicationError, ApplicationRepository, ApplicationServices, audit::AuditContext};
 
-/// 游戏日历中的一条可持久化日程
+mod recurring;
+
+/// 游戏日历中的一条日程，包括持久化投影和固定周期玩法
 #[derive(Debug, Clone)]
 pub struct CalendarEvent {
     pub game_id: String,
@@ -81,7 +83,19 @@ where
                 "calendar start time must be before end time".to_owned(),
             ));
         }
-        Ok(self.repository.list_calendar_events(filter).await?)
+        let mut events = self.repository.list_calendar_events(filter.clone()).await?;
+        if recurring::enabled(&filter) {
+            let game_cover = self.repository.find_game_cover(&filter.game_id).await?;
+            events.extend(recurring::materialize(&filter, game_cover));
+            events.sort_by(|left, right| {
+                left.start_time
+                    .cmp(&right.start_time)
+                    .then(left.end_time.cmp(&right.end_time))
+                    .then(left.id.cmp(&right.id))
+            });
+            events.truncate(usize::try_from(filter.limit).unwrap_or(usize::MAX));
+        }
+        Ok(events)
     }
 
     /// 校验并同步一个游戏的日程投影
