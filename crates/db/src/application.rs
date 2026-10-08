@@ -11,8 +11,8 @@ use akasha_application::{
         ZzzCharacterListFilter,
     },
     game_data::{
-        GameDataCollection, GameDataEntry, GameDataListFilter, GameDataRawItem,
-        ListGameDataRawFilter, SyncGameDataCollectionCommand, SyncGameDataCollectionResult,
+        GameDataCollection, GameDataEntry, GameDataListFilter, GameDataSyncState,
+        ListGameDataSyncStateFilter, SyncGameDataCollectionCommand, SyncGameDataCollectionResult,
         UpdateGameDataCollectionCommand,
     },
     game_versions::{GameVersion, SyncGameVersionsCommand, SyncGameVersionsResult},
@@ -32,6 +32,14 @@ use chrono::{DateTime, FixedOffset};
 use crate::{Db, repositories};
 
 impl ApplicationRepository for Db {
+    async fn list_achievement_groups(
+        &self,
+        game_id: &str,
+    ) -> RepositoryResult<Vec<akasha_application::achievements::AchievementGroup>> {
+        repositories::game_data::achievement_groups(self, game_id)
+            .await
+            .map_err(RepositoryError::new)
+    }
     async fn delete_audit_logs_before(
         &self,
         cutoff: DateTime<FixedOffset>,
@@ -121,11 +129,11 @@ impl ApplicationRepository for Db {
             .map_err(RepositoryError::new)
     }
 
-    async fn list_game_data_raw(
+    async fn list_game_data_sync_state(
         &self,
-        filter: ListGameDataRawFilter,
-    ) -> RepositoryResult<(u64, Vec<GameDataRawItem>)> {
-        repositories::game_data::list_raw(self, filter)
+        filter: ListGameDataSyncStateFilter,
+    ) -> RepositoryResult<(u64, Vec<GameDataSyncState>)> {
+        repositories::game_data::list_sync_state(self, filter)
             .await
             .map_err(RepositoryError::new)
     }

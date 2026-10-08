@@ -4,6 +4,7 @@ dist/
 /justfile
 data/
 .agents/skills
+/.agents/workspace.local.md
 
 config/*.toml
 !config/*.toml.example

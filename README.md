@@ -77,6 +77,8 @@ openssl rand -base64 32
 
 ## 本地开发
 
+开发、PR、CI、版本与发行约定见 [开发与发行流程](CONTRIBUTING.md)
+
 启动后端：
 
 ```bash
@@ -87,8 +89,9 @@ cargo run
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo check --workspace --all-targets --all-features --locked
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-features --locked
 ```
 
 后端启动后可访问：
@@ -131,3 +134,18 @@ docker logs -f akasha-backend
 ```bash
 docker build --target akasha -t akasha-backend:latest .
 ```
+
+## 成就目录
+
+三款游戏使用 `ys`、`sr`、`zzz`，公开接口包括：
+
+- `GET /api/v1/games/{game_id}/achievements`：支持 `q`、`group_id`、`hidden`、`limit` 和 `offset`，每页最多 100 条
+- `GET /api/v1/games/{game_id}/achievement-groups`：分类、排序与每类成就数量
+
+成就定义包含名称、描述、分类、排序和已确认的奖励等字段。分类直接由同一集合聚合，集合增量更新与审计日志在单个事务内完成。未知的隐藏状态、奖励或前置关系不推测填充
+
+Akasha 只保存网站需要的规范化游戏定义和内容指纹，不保存完整游戏来源文件，也不维护玩家完成状态、备注或同步账号。个人状态由客户端保管
+
+管理端游戏数据同步状态接口为 `/api/v1/admin/games/{game_id}/data/{collection}/sync-state`，返回 ID 和 `source_hash`。游戏数据写入不再接受 `raw_data`，新闻原始数据接口不受影响。客户端应与后端同步适配这一管理协议变更
+
+既有数据库的游戏数据 `raw_data` 列可在停写、备份后一次性移除；服务启动不会执行这一清理。旧的成就分类嵌套记录需改为规范化的逐成就记录后再启用成就查询

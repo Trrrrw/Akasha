@@ -5,6 +5,7 @@
 mod error;
 mod repository;
 
+pub mod achievements;
 pub mod audit;
 pub mod calendar;
 pub mod characters;

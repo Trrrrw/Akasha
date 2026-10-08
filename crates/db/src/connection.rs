@@ -282,8 +282,9 @@ mod tests {
         calendar::{CalendarEventInput, ListCalendarEventsFilter, SyncCalendarEventsCommand},
         characters::YsCharacterListFilter,
         game_data::{
-            GameDataCollectionFilter, GameDataEntry, GameDataListFilter, ListGameDataRawFilter,
-            SyncGameDataCollectionCommand, UpdateGameDataCollectionCommand,
+            GameDataCollectionFilter, GameDataEntry, GameDataListFilter,
+            ListGameDataSyncStateFilter, SyncGameDataCollectionCommand,
+            UpdateGameDataCollectionCommand,
         },
         game_versions::{GameVersionInput, SyncGameVersionsCommand},
         news::{
@@ -354,7 +355,6 @@ mod tests {
             }),
             detail: Some(json!({})),
             assets: json!({}),
-            raw_data: Some(json!({ "id": id, "name": name })),
             source_hash: Some(format!("hash-{id}")),
         }
     }
@@ -368,8 +368,87 @@ mod tests {
             summary: json!({ "id": id, "name": name }),
             detail: Some(json!({ "description": name })),
             assets: json!({}),
-            raw_data: Some(json!({ "id": id, "name": name })),
             source_hash: Some(format!("hash-{id}")),
+        }
+    }
+
+    #[tokio::test]
+    async fn achievement_projection_groups_filters_and_sync_state_agree() {
+        use akasha_application::{ApplicationServices, achievements::AchievementListFilter};
+        let db = Db::init(DbOptions {
+            sqlite_path: ":memory:".to_owned(),
+        })
+        .await
+        .expect("database");
+        for game in ["ys", "sr", "zzz"] {
+            let make = |id: &str, group: &str, order: i64, hidden: Option<bool>| {
+                let mut entry = game_data_entry("achievement", id, id);
+                entry.detail = None;
+                entry.summary = json!({"id":id,"name":id,"description":"在山顶找到宝箱","group_id":group,"group_name":group,"group_order":order,"order":0,"hidden":hidden,"rewards":[],"target":null,"previous_id":null});
+                entry
+            };
+            let service = ApplicationServices::new(db.clone());
+            service
+                .sync_game_data_collection(SyncGameDataCollectionCommand {
+                    game_id: game.to_owned(),
+                    collection: "achievement".to_owned(),
+                    items: vec![
+                        make("1", "a", 2, Some(true)),
+                        make("2", "b", 1, None),
+                        make("3", "a", 2, Some(false)),
+                    ],
+                    audit: audit_context(),
+                })
+                .await
+                .expect("normalized collection");
+            let groups = service.list_achievement_groups(game).await.expect("groups");
+            assert_eq!(
+                groups
+                    .iter()
+                    .map(|g| (g.id.as_str(), g.total))
+                    .collect::<Vec<_>>(),
+                vec![("b", 1), ("a", 2)]
+            );
+            let (total, filtered) = service
+                .list_achievements(
+                    game.to_owned(),
+                    Some(TextQuery::parse("宝箱").expect("query")),
+                    AchievementListFilter {
+                        group_id: Some("a".to_owned()),
+                        hidden: Some(false),
+                    },
+                    1,
+                    0,
+                )
+                .await
+                .expect("filtered list");
+            assert_eq!(total, 1);
+            assert_eq!(filtered[0].id, "3");
+            let (_, visible) = service
+                .list_achievements(
+                    game.to_owned(),
+                    None,
+                    AchievementListFilter {
+                        group_id: None,
+                        hidden: None,
+                    },
+                    1,
+                    0,
+                )
+                .await
+                .expect("ordered list");
+            assert_eq!(visible[0].id, "2");
+            let (total, state) = service
+                .list_game_data_sync_state(ListGameDataSyncStateFilter {
+                    game_id: game.to_owned(),
+                    collection: "achievement".to_owned(),
+                    after_id: Some("1".to_owned()),
+                    limit: 1,
+                })
+                .await
+                .expect("sync state");
+            assert_eq!(total, 3);
+            assert_eq!(state[0].id, "2");
         }
     }
 
@@ -554,7 +633,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn incrementally_updates_game_data_and_lists_raw_state() {
+    async fn incrementally_updates_game_data_and_lists_sync_state() {
         let db = Db::init(DbOptions {
             sqlite_path: ":memory:".to_owned(),
         })
@@ -578,7 +657,6 @@ mod tests {
 
         let mut changed = game_data_entry("weapon", "2001", "新武器");
         changed.source_hash = Some("new-hash".to_owned());
-        changed.raw_data = Some(json!({ "id": "2001", "name": "新武器" }));
         let result = repositories::game_data::update(
             &db,
             UpdateGameDataCollectionCommand {
@@ -595,25 +673,20 @@ mod tests {
         assert_eq!(result.updated, 1);
         assert_eq!(result.deleted, 1);
         assert_eq!(result.total, 1);
-        let (total, raw) = repositories::game_data::list_raw(
+        let (total, raw) = repositories::game_data::list_sync_state(
             &db,
-            ListGameDataRawFilter {
+            ListGameDataSyncStateFilter {
                 game_id: "ys".to_owned(),
                 collection: "weapon".to_owned(),
                 after_id: None,
-                include_raw_data: true,
                 limit: 100,
             },
         )
         .await
-        .expect("raw state should be queryable");
+        .expect("sync state should be queryable");
         assert_eq!(total, 1);
         assert_eq!(raw[0].id, "2001");
         assert_eq!(raw[0].source_hash.as_deref(), Some("new-hash"));
-        assert_eq!(
-            raw[0].raw_data,
-            Some(json!({ "id": "2001", "name": "新武器" }))
-        );
     }
 
     /// 验证新闻角色关联可以随新闻写入并从公开查询投影读取

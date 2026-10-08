@@ -1,13 +1,13 @@
 use std::path::{Component, Path, PathBuf};
 
 use akasha_application::game_data::{
-    GameDataEntry, ListGameDataRawFilter, SyncGameDataCollectionCommand,
+    GameDataEntry, ListGameDataSyncStateFilter, SyncGameDataCollectionCommand,
     SyncGameDataCollectionResult, UpdateGameDataCollectionCommand,
 };
 use axum::{
     Json,
     body::Bytes,
-    extract::{Path as AxumPath, Query, State},
+    extract::{Path as AxumPath, Query, State, rejection::JsonRejection},
     http::{HeaderMap, StatusCode},
 };
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,7 @@ pub(crate) struct SyncGameDataCollectionRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct GameDataEntryRequest {
     id: String,
     name: Option<String>,
@@ -37,7 +38,6 @@ pub(crate) struct GameDataEntryRequest {
     summary: Value,
     detail: Option<Value>,
     assets: Value,
-    raw_data: Option<Value>,
     source_hash: Option<String>,
 }
 
@@ -49,24 +49,22 @@ pub(crate) struct UpdateGameDataCollectionRequest {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct GameDataRawQuery {
+pub(crate) struct GameDataSyncStateQuery {
     after_id: Option<String>,
     limit: Option<u64>,
-    include_raw_data: Option<bool>,
 }
 
 #[derive(Serialize)]
-pub(crate) struct GameDataRawPageResponse {
+pub(crate) struct GameDataSyncStatePageResponse {
     total: u64,
     limit: u64,
-    items: Vec<GameDataRawItemResponse>,
+    items: Vec<GameDataSyncStateResponse>,
     next_cursor: Option<String>,
 }
 
 #[derive(Serialize)]
-pub(crate) struct GameDataRawItemResponse {
+pub(crate) struct GameDataSyncStateResponse {
     id: String,
-    raw_data: Option<Value>,
     source_hash: Option<String>,
 }
 
@@ -84,8 +82,9 @@ pub(crate) async fn sync_collection(
     State(state): State<AppState>,
     headers: HeaderMap,
     AxumPath((game_id, collection)): AxumPath<(String, String)>,
-    Json(body): Json<SyncGameDataCollectionRequest>,
+    body: Result<Json<SyncGameDataCollectionRequest>, JsonRejection>,
 ) -> Result<Json<SyncGameDataCollectionResponse>, AppError> {
+    let Json(body) = body.map_err(|error| AppError::BadRequest(error.body_text()))?;
     validate_game(&game_id)?;
     require_game(&state, &game_id).await?;
     validate_collection(&collection)?;
@@ -121,7 +120,6 @@ pub(crate) async fn sync_collection(
                     summary: item.summary,
                     detail: item.detail,
                     assets: item.assets,
-                    raw_data: item.raw_data,
                     source_hash: item.source_hash,
                 })
                 .collect(),
@@ -131,38 +129,35 @@ pub(crate) async fn sync_collection(
     Ok(Json(result.into()))
 }
 
-pub(crate) async fn list_raw(
+pub(crate) async fn list_sync_state(
     actor: DataWriteActor,
     State(state): State<AppState>,
     AxumPath((game_id, collection)): AxumPath<(String, String)>,
-    Query(query): Query<GameDataRawQuery>,
-) -> Result<Json<GameDataRawPageResponse>, AppError> {
+    Query(query): Query<GameDataSyncStateQuery>,
+) -> Result<Json<GameDataSyncStatePageResponse>, AppError> {
     validate_game(&game_id)?;
     require_game(&state, &game_id).await?;
     validate_collection(&collection)?;
     let limit = query.limit.unwrap_or(500).clamp(1, 1_000);
-    tracing::debug!(actor = %actor.label(), game_id, collection, "listing raw game data");
+    tracing::debug!(actor = %actor.label(), game_id, collection, "listing game data sync state");
     let (total, items) = state
         .application()
-        .list_game_data_raw(ListGameDataRawFilter {
+        .list_game_data_sync_state(ListGameDataSyncStateFilter {
             game_id,
             collection,
             after_id: query.after_id,
-            include_raw_data: query.include_raw_data.unwrap_or(false),
             limit,
         })
         .await?;
     let next_cursor = items.last().map(|item| item.id.clone());
-    let include_raw_data = query.include_raw_data.unwrap_or(false);
-    Ok(Json(GameDataRawPageResponse {
+    Ok(Json(GameDataSyncStatePageResponse {
         total,
         limit,
         next_cursor,
         items: items
             .into_iter()
-            .map(|item| GameDataRawItemResponse {
+            .map(|item| GameDataSyncStateResponse {
                 id: item.id,
-                raw_data: include_raw_data.then_some(item.raw_data).flatten(),
                 source_hash: item.source_hash,
             })
             .collect(),
@@ -174,8 +169,9 @@ pub(crate) async fn update_collection(
     State(state): State<AppState>,
     headers: HeaderMap,
     AxumPath((game_id, collection)): AxumPath<(String, String)>,
-    Json(body): Json<UpdateGameDataCollectionRequest>,
+    body: Result<Json<UpdateGameDataCollectionRequest>, JsonRejection>,
 ) -> Result<Json<SyncGameDataCollectionResponse>, AppError> {
+    let Json(body) = body.map_err(|error| AppError::BadRequest(error.body_text()))?;
     validate_game(&game_id)?;
     require_game(&state, &game_id).await?;
     validate_collection(&collection)?;
@@ -197,7 +193,6 @@ pub(crate) async fn update_collection(
                     summary: item.summary,
                     detail: item.detail,
                     assets: item.assets,
-                    raw_data: item.raw_data,
                     source_hash: item.source_hash,
                 })
                 .collect(),

@@ -72,6 +72,8 @@ mod tests {
             "/api/v1/games/{game_id}/news/series/{tag_name}/episodes/{news_id}/media/nfo"
         ));
         assert!(paths.contains_key("/api/v1/games/{game_id}/data/{collection}"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/achievements"));
+        assert!(paths.contains_key("/api/v1/games/{game_id}/achievement-groups"));
         assert!(paths.contains_key("/api/v1/games/{game_id}/versions"));
         assert_eq!(
             paths["/api/v1/games/{game_id}/versions"]["get"]["tags"][0],

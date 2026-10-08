@@ -1,6 +1,6 @@
 use akasha_application::game_data::{
     GameDataCollection, GameDataCollectionFilter, GameDataEntry, GameDataListFilter,
-    GameDataRawItem, ListGameDataRawFilter, SyncGameDataCollectionCommand,
+    GameDataSyncState, ListGameDataSyncStateFilter, SyncGameDataCollectionCommand,
     SyncGameDataCollectionResult, UpdateGameDataCollectionCommand,
 };
 
@@ -55,18 +55,29 @@ macro_rules! game_data_repository {
                 let mut query = $entity::Entity::find()
                     .filter($entity::Column::Collection.eq(&filter.collection));
                 if let Some(text_query) = filter.query.as_ref() {
+                    let fields = if filter.collection == "achievement" {
+                        vec![Expr::col($entity::Column::Name), json_field("$.description")]
+                    } else {
+                        vec![Expr::col($entity::Column::Name)]
+                    };
                     query = query.filter(text_query_condition(
                         text_query,
-                        &[Expr::col($entity::Column::Name)],
+                        &fields,
                     ));
+                }
+                if let Some(GameDataCollectionFilter::Achievement(ref achievement)) = filter.collection_filter {
+                    if let Some(ref group_id) = achievement.group_id { query = query.filter(json_field("$.group_id").eq(group_id)); }
+                    if let Some(hidden) = achievement.hidden { query = query.filter(json_field("$.hidden").eq(hidden)); }
                 }
                 let total = query
                     .clone()
                     .count(db.conn())
                     .await
                     .map_err(DbError::Query)?;
+                let query = if filter.collection == "achievement" {
+                    query.order_by_asc(json_field("$.group_order")).order_by_asc(json_field("$.order"))
+                } else { query.order_by_asc($entity::Column::Name) };
                 let rows = query
-                    .order_by_asc($entity::Column::Name)
                     .order_by_asc($entity::Column::Id)
                     .limit(filter.limit)
                     .offset(filter.offset)
@@ -74,6 +85,27 @@ macro_rules! game_data_repository {
                     .await
                     .map_err(DbError::Query)?;
                 Ok((total, rows.into_iter().map(GameDataEntry::from).collect()))
+            }
+
+            fn json_field(path: &'static str) -> sea_orm::sea_query::Expr {
+                sea_orm::sea_query::Func::cust(sea_orm::sea_query::Alias::new("json_extract"))
+                    .arg(Expr::col($entity::Column::Summary)).arg(Expr::val(path)).into()
+            }
+
+            pub async fn achievement_groups(db: &Db) -> Result<Vec<akasha_application::achievements::AchievementGroup>, DbError> {
+                let rows = $entity::Entity::find().select_only()
+                    .filter($entity::Column::Collection.eq("achievement"))
+                    .column_as(json_field("$.group_id"), "group_id")
+                    .column_as(json_field("$.group_name"), "group_name")
+                    .column_as(json_field("$.group_order"), "group_order")
+                    .column_as(Expr::col($entity::Column::Id).count(), "total")
+                    .group_by(json_field("$.group_id"))
+                    .group_by(json_field("$.group_name"))
+                    .group_by(json_field("$.group_order"))
+                    .order_by_asc(json_field("$.group_order"))
+                    .order_by_asc(json_field("$.group_id"))
+                    .into_tuple::<(String,String,i64,i64)>().all(db.conn()).await.map_err(DbError::Query)?;
+                Ok(rows.into_iter().map(|(id,name,order,total)| akasha_application::achievements::AchievementGroup {id,name,order,total:total as u64}).collect())
             }
 
             pub async fn find(
@@ -88,10 +120,10 @@ macro_rules! game_data_repository {
                     .map(GameDataEntry::from))
             }
 
-            pub async fn list_raw(
+            pub async fn list_sync_state(
                 db: &Db,
-                filter: ListGameDataRawFilter,
-            ) -> Result<(u64, Vec<GameDataRawItem>), DbError> {
+                filter: ListGameDataSyncStateFilter,
+            ) -> Result<(u64, Vec<GameDataSyncState>), DbError> {
                 let base = $entity::Entity::find()
                     .filter($entity::Column::Collection.eq(&filter.collection));
                 let total = base
@@ -106,35 +138,12 @@ macro_rules! game_data_repository {
                 let query = query
                     .order_by_asc($entity::Column::Id)
                     .limit(filter.limit);
-                let items = if filter.include_raw_data {
-                    query
-                        .all(db.conn())
-                        .await
-                        .map_err(DbError::Query)?
-                        .into_iter()
-                        .map(|row| GameDataRawItem {
-                            id: row.id,
-                            raw_data: row.raw_data,
-                            source_hash: row.source_hash,
-                        })
-                        .collect()
-                } else {
-                    query
-                        .select_only()
-                        .column($entity::Column::Id)
-                        .column($entity::Column::SourceHash)
-                        .into_tuple::<(String, Option<String>)>()
-                        .all(db.conn())
-                        .await
-                        .map_err(DbError::Query)?
-                        .into_iter()
-                        .map(|(id, source_hash)| GameDataRawItem {
-                            id,
-                            raw_data: None,
-                            source_hash,
-                        })
-                        .collect()
-                };
+                let items = query.select_only()
+                    .column($entity::Column::Id)
+                    .column($entity::Column::SourceHash)
+                    .into_tuple::<(String, Option<String>)>()
+                    .all(db.conn()).await.map_err(DbError::Query)?
+                    .into_iter().map(|(id, source_hash)| GameDataSyncState { id, source_hash }).collect();
                 Ok((total, items))
             }
 
@@ -164,7 +173,6 @@ macro_rules! game_data_repository {
                                         summary: item.summary,
                                         detail: item.detail,
                                         assets: item.assets,
-                                        raw_data: item.raw_data,
                                         source_hash: item.source_hash,
                                     })
                                 })
@@ -278,7 +286,6 @@ macro_rules! game_data_repository {
                                         summary: item.summary,
                                         detail: item.detail,
                                         assets: item.assets,
-                                        raw_data: item.raw_data,
                                         source_hash: item.source_hash,
                                     })
                                 })
@@ -391,7 +398,6 @@ macro_rules! game_data_repository {
                         $entity::Column::Summary,
                         $entity::Column::Detail,
                         $entity::Column::Assets,
-                        $entity::Column::RawData,
                         $entity::Column::SourceHash,
                     ])
                     .to_owned()
@@ -407,7 +413,6 @@ macro_rules! game_data_repository {
                         summary: value.summary,
                         detail: value.detail,
                         assets: value.assets,
-                        raw_data: value.raw_data,
                         source_hash: value.source_hash,
                     }
                 }
@@ -451,6 +456,12 @@ pub async fn list(
             GameDataCollectionFilter::ZzzCharacter(filter) => {
                 crate::repositories::characters::list_zzz_entries(db, filter).await
             }
+            GameDataCollectionFilter::Achievement(_) => match filter.game_id.as_str() {
+                "ys" => ys::list(db, filter).await,
+                "sr" => sr::list(db, filter).await,
+                "zzz" => zzz::list(db, filter).await,
+                _ => Ok((0, Vec::new())),
+            },
         };
     }
     match filter.game_id.as_str() {
@@ -458,6 +469,18 @@ pub async fn list(
         "sr" => sr::list(db, filter).await,
         "zzz" => zzz::list(db, filter).await,
         _ => Ok((0, Vec::new())),
+    }
+}
+
+pub async fn achievement_groups(
+    db: &Db,
+    game_id: &str,
+) -> Result<Vec<akasha_application::achievements::AchievementGroup>, DbError> {
+    match game_id {
+        "ys" => ys::achievement_groups(db).await,
+        "sr" => sr::achievement_groups(db).await,
+        "zzz" => zzz::achievement_groups(db).await,
+        _ => Ok(Vec::new()),
     }
 }
 
@@ -475,14 +498,14 @@ pub async fn find(
     }
 }
 
-pub async fn list_raw(
+pub async fn list_sync_state(
     db: &Db,
-    filter: ListGameDataRawFilter,
-) -> Result<(u64, Vec<GameDataRawItem>), DbError> {
+    filter: ListGameDataSyncStateFilter,
+) -> Result<(u64, Vec<GameDataSyncState>), DbError> {
     match filter.game_id.as_str() {
-        "ys" => ys::list_raw(db, filter).await,
-        "sr" => sr::list_raw(db, filter).await,
-        "zzz" => zzz::list_raw(db, filter).await,
+        "ys" => ys::list_sync_state(db, filter).await,
+        "sr" => sr::list_sync_state(db, filter).await,
+        "zzz" => zzz::list_sync_state(db, filter).await,
         _ => Ok((0, Vec::new())),
     }
 }
