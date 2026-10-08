@@ -31,102 +31,35 @@ pub(super) async fn list_birthdays(
     game_id: &str,
 ) -> Result<Vec<CharacterBirthdayResponse>, AppError> {
     let asset_base_url = &state.config().asset_base_url;
+    macro_rules! birthdays {
+        ($method:ident, $filter:ident) => {
+            state
+                .application()
+                .$method($filter {
+                    birthday_only: true,
+                    limit: CHARACTER_LIMIT,
+                    ..Default::default()
+                })
+                .await?
+                .1
+                .into_iter()
+                .filter_map(|item| {
+                    birthday(
+                        item.id,
+                        item.name,
+                        item.icon_url,
+                        item.birthday_month,
+                        item.birthday_day,
+                        asset_base_url,
+                    )
+                })
+                .collect()
+        };
+    }
     let items = match game_id {
-        "ys" => state
-            .application()
-            .list_ys_characters(YsCharacterListFilter {
-                query: None,
-                element: None,
-                weapon_type: None,
-                rarity: None,
-                region: None,
-                affiliation: None,
-                voice_actor: None,
-                birthday_month: None,
-                birthday_day: None,
-                special: None,
-                birthday_only: true,
-                limit: CHARACTER_LIMIT,
-                offset: 0,
-            })
-            .await?
-            .1
-            .into_iter()
-            .filter_map(|item| {
-                birthday(
-                    item.id,
-                    item.name,
-                    item.icon_url,
-                    item.birthday_month,
-                    item.birthday_day,
-                    asset_base_url,
-                )
-            })
-            .collect(),
-        "sr" => state
-            .application()
-            .list_sr_characters(SrCharacterListFilter {
-                query: None,
-                path: None,
-                combat_type: None,
-                rarity: None,
-                camp: None,
-                voice_actor: None,
-                birthday_month: None,
-                birthday_day: None,
-                birthday_only: true,
-                limit: CHARACTER_LIMIT,
-                offset: 0,
-            })
-            .await?
-            .1
-            .into_iter()
-            .filter_map(|item| {
-                birthday(
-                    item.id,
-                    item.name,
-                    item.icon_url,
-                    item.birthday_month,
-                    item.birthday_day,
-                    asset_base_url,
-                )
-            })
-            .collect(),
-        "zzz" => state
-            .application()
-            .list_zzz_characters(ZzzCharacterListFilter {
-                query: None,
-                specialty_id: None,
-                specialty: None,
-                element_id: None,
-                element: None,
-                hit_type_id: None,
-                hit_type: None,
-                camp_id: None,
-                camp: None,
-                rarity: None,
-                gender: None,
-                special_element: None,
-                birthday_month: None,
-                birthday_day: None,
-                birthday_only: true,
-                limit: CHARACTER_LIMIT,
-                offset: 0,
-            })
-            .await?
-            .1
-            .into_iter()
-            .filter_map(|item| {
-                birthday(
-                    item.id,
-                    item.name,
-                    item.icon_url,
-                    item.birthday_month,
-                    item.birthday_day,
-                    asset_base_url,
-                )
-            })
-            .collect(),
+        "ys" => birthdays!(list_ys_characters, YsCharacterListFilter),
+        "sr" => birthdays!(list_sr_characters, SrCharacterListFilter),
+        "zzz" => birthdays!(list_zzz_characters, ZzzCharacterListFilter),
         _ => {
             return Err(AppError::NotFound(format!(
                 "character calendar is not available for game {game_id}"

@@ -27,3 +27,12 @@ pub enum DbError {
     #[error("数据库导入失败: {0}")]
     Import(#[source] sea_orm::DbErr),
 }
+
+impl From<sea_orm::TransactionError<sea_orm::DbErr>> for DbError {
+    fn from(error: sea_orm::TransactionError<sea_orm::DbErr>) -> Self {
+        match error {
+            sea_orm::TransactionError::Connection(error)
+            | sea_orm::TransactionError::Transaction(error) => Self::Query(error),
+        }
+    }
+}

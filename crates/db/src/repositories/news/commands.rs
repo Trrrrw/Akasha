@@ -7,7 +7,7 @@ use akasha_application::news::{
 use chrono::Utc;
 use sea_orm::{
     ActiveEnum, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseTransaction, DbErr,
-    EntityTrait, QueryFilter, QuerySelect, TransactionError, TransactionTrait,
+    EntityTrait, QueryFilter, QuerySelect, TransactionTrait,
 };
 use serde_json::json;
 
@@ -174,7 +174,7 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
             })
         })
         .await
-        .map_err(transaction_error)
+        .map_err(DbError::from)
 }
 
 /// 将新闻写入命令转换为接口返回所需的公开摘要
@@ -357,7 +357,7 @@ pub async fn replace_news_tags(db: &Db, command: ReplaceNewsTagsCommand) -> Resu
             })
         })
         .await
-        .map_err(transaction_error)
+        .map_err(DbError::from)
 }
 
 /// 替换一个来源下多条新闻的游戏专属角色关联
@@ -400,7 +400,7 @@ pub async fn replace_news_characters(
             })
         })
         .await
-        .map_err(transaction_error)
+        .map_err(DbError::from)
 }
 
 /// 读取一条新闻在对应游戏关联表中的角色 ID
@@ -410,41 +410,26 @@ async fn list_news_character_ids(
     source_id: &str,
     news_id: &str,
 ) -> Result<Vec<String>, DbErr> {
-    match game_id {
-        "ys" => {
-            ys_news_characters_link::Entity::find()
-                .select_only()
-                .column(ys_news_characters_link::Column::CharacterId)
-                .filter(ys_news_characters_link::Column::GameId.eq(game_id))
-                .filter(ys_news_characters_link::Column::SourceId.eq(source_id))
-                .filter(ys_news_characters_link::Column::NewsId.eq(news_id))
-                .into_tuple::<String>()
-                .all(txn)
-                .await
+    {
+        macro_rules! query_game {
+            ($link:ident) => {{
+                $link::Entity::find()
+                    .select_only()
+                    .column($link::Column::CharacterId)
+                    .filter($link::Column::GameId.eq(game_id))
+                    .filter($link::Column::SourceId.eq(source_id))
+                    .filter($link::Column::NewsId.eq(news_id))
+                    .into_tuple::<String>()
+                    .all(txn)
+                    .await
+            }};
         }
-        "sr" => {
-            sr_news_characters_link::Entity::find()
-                .select_only()
-                .column(sr_news_characters_link::Column::CharacterId)
-                .filter(sr_news_characters_link::Column::GameId.eq(game_id))
-                .filter(sr_news_characters_link::Column::SourceId.eq(source_id))
-                .filter(sr_news_characters_link::Column::NewsId.eq(news_id))
-                .into_tuple::<String>()
-                .all(txn)
-                .await
+        match game_id {
+            "ys" => query_game!(ys_news_characters_link),
+            "sr" => query_game!(sr_news_characters_link),
+            "zzz" => query_game!(zzz_news_characters_link),
+            _ => Ok(Vec::new()),
         }
-        "zzz" => {
-            zzz_news_characters_link::Entity::find()
-                .select_only()
-                .column(zzz_news_characters_link::Column::CharacterId)
-                .filter(zzz_news_characters_link::Column::GameId.eq(game_id))
-                .filter(zzz_news_characters_link::Column::SourceId.eq(source_id))
-                .filter(zzz_news_characters_link::Column::NewsId.eq(news_id))
-                .into_tuple::<String>()
-                .all(txn)
-                .await
-        }
-        _ => Ok(Vec::new()),
     }
 }
 
@@ -456,79 +441,40 @@ async fn replace_news_character_links(
     news_id: &str,
     characters: &[NewsCharacterInput],
 ) -> Result<(), DbErr> {
-    match game_id {
-        "ys" => {
-            ys_news_characters_link::Entity::delete_many()
-                .filter(ys_news_characters_link::Column::GameId.eq(game_id))
-                .filter(ys_news_characters_link::Column::SourceId.eq(source_id))
-                .filter(ys_news_characters_link::Column::NewsId.eq(news_id))
-                .exec(txn)
-                .await?;
-            for character in characters {
-                ys_news_characters_link::ActiveModel {
-                    game_id: Set(game_id.to_owned()),
-                    source_id: Set(source_id.to_owned()),
-                    news_id: Set(news_id.to_owned()),
-                    character_id: Set(character.id.clone()),
-                    character_collection: Set("character".to_owned()),
+    {
+        macro_rules! query_game {
+            ($link:ident) => {{
+                $link::Entity::delete_many()
+                    .filter($link::Column::GameId.eq(game_id))
+                    .filter($link::Column::SourceId.eq(source_id))
+                    .filter($link::Column::NewsId.eq(news_id))
+                    .exec(txn)
+                    .await?;
+                for character in characters {
+                    $link::ActiveModel {
+                        game_id: Set(game_id.to_owned()),
+                        source_id: Set(source_id.to_owned()),
+                        news_id: Set(news_id.to_owned()),
+                        character_id: Set(character.id.clone()),
+                        character_collection: Set("character".to_owned()),
+                    }
+                    .insert(txn)
+                    .await?;
                 }
-                .insert(txn)
-                .await?;
-            }
+            }};
         }
-        "sr" => {
-            sr_news_characters_link::Entity::delete_many()
-                .filter(sr_news_characters_link::Column::GameId.eq(game_id))
-                .filter(sr_news_characters_link::Column::SourceId.eq(source_id))
-                .filter(sr_news_characters_link::Column::NewsId.eq(news_id))
-                .exec(txn)
-                .await?;
-            for character in characters {
-                sr_news_characters_link::ActiveModel {
-                    game_id: Set(game_id.to_owned()),
-                    source_id: Set(source_id.to_owned()),
-                    news_id: Set(news_id.to_owned()),
-                    character_id: Set(character.id.clone()),
-                    character_collection: Set("character".to_owned()),
-                }
-                .insert(txn)
-                .await?;
+        match game_id {
+            "ys" => query_game!(ys_news_characters_link),
+            "sr" => query_game!(sr_news_characters_link),
+            "zzz" => query_game!(zzz_news_characters_link),
+            _ if characters.is_empty() => {}
+            _ => {
+                return Err(DbErr::Custom(format!(
+                    "character links are not supported for game {game_id}"
+                )));
             }
-        }
-        "zzz" => {
-            zzz_news_characters_link::Entity::delete_many()
-                .filter(zzz_news_characters_link::Column::GameId.eq(game_id))
-                .filter(zzz_news_characters_link::Column::SourceId.eq(source_id))
-                .filter(zzz_news_characters_link::Column::NewsId.eq(news_id))
-                .exec(txn)
-                .await?;
-            for character in characters {
-                zzz_news_characters_link::ActiveModel {
-                    game_id: Set(game_id.to_owned()),
-                    source_id: Set(source_id.to_owned()),
-                    news_id: Set(news_id.to_owned()),
-                    character_id: Set(character.id.clone()),
-                    character_collection: Set("character".to_owned()),
-                }
-                .insert(txn)
-                .await?;
-            }
-        }
-        _ if characters.is_empty() => {}
-        _ => {
-            return Err(DbErr::Custom(format!(
-                "character links are not supported for game {game_id}"
-            )));
         }
     }
 
     Ok(())
-}
-
-fn transaction_error(error: TransactionError<DbErr>) -> DbError {
-    match error {
-        TransactionError::Connection(error) | TransactionError::Transaction(error) => {
-            DbError::Query(error)
-        }
-    }
 }

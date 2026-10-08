@@ -6,7 +6,7 @@ use akasha_application::calendar::{
 use chrono::Utc;
 use sea_orm::{
     ColumnTrait, DbErr, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect,
-    TransactionError, TransactionTrait, sea_query::OnConflict,
+    TransactionTrait, sea_query::OnConflict,
 };
 use serde_json::json;
 
@@ -153,7 +153,7 @@ pub async fn sync(
             })
         })
         .await
-        .map_err(transaction_error)
+        .map_err(DbError::from)
 }
 
 fn event_upsert() -> OnConflict {
@@ -213,12 +213,4 @@ fn event_from_model(row: game_events::Model) -> Result<CalendarEvent, DbError> {
         source_url: row.source_url,
         source_hash: row.source_hash,
     })
-}
-
-fn transaction_error(error: TransactionError<DbErr>) -> DbError {
-    match error {
-        TransactionError::Connection(error) | TransactionError::Transaction(error) => {
-            DbError::Query(error)
-        }
-    }
 }

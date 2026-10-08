@@ -14,7 +14,6 @@ pub struct Model {
     pub summary: Json,
     pub detail: Option<Json>,
     pub assets: Json,
-    pub raw_data: Option<Json>,
     pub source_hash: Option<String>,
 }
 

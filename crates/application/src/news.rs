@@ -115,7 +115,7 @@ pub struct NewsCharacter {
 }
 
 /// 新闻角色关联写入数据
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct NewsCharacterInput {
     pub id: String,
     pub name: String,
@@ -275,7 +275,7 @@ pub struct SyncNewsTagsCommand {
 }
 
 /// 同步来源标签目录时提供的单个标签
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct NewsTagInput {
     pub name: String,
     pub index: i64,
@@ -300,7 +300,7 @@ pub struct ReplaceNewsTagsCommand {
 }
 
 /// 一条新闻的替换标签集合
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct NewsTagUpdate {
     pub id: String,
     pub tags: Vec<String>,
@@ -316,7 +316,7 @@ pub struct ReplaceNewsCharactersCommand {
 }
 
 /// 一条新闻的替换角色集合
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct NewsCharacterUpdate {
     pub id: String,
     pub characters: Vec<NewsCharacterInput>,

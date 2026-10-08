@@ -13,8 +13,8 @@ use crate::{
         ZzzCharacterListFilter,
     },
     game_data::{
-        GameDataCollection, GameDataEntry, GameDataListFilter, GameDataRawItem,
-        ListGameDataRawFilter, SyncGameDataCollectionCommand, SyncGameDataCollectionResult,
+        GameDataCollection, GameDataEntry, GameDataListFilter, GameDataSyncState,
+        ListGameDataSyncStateFilter, SyncGameDataCollectionCommand, SyncGameDataCollectionResult,
         UpdateGameDataCollectionCommand,
     },
     game_versions::{GameVersion, SyncGameVersionsCommand, SyncGameVersionsResult},
@@ -32,6 +32,11 @@ use crate::{
 
 /// 所有 Akasha 应用服务所需的持久化操作
 pub trait ApplicationRepository: Send + Sync {
+    /// 按分类聚合成就目录，不加载所有条目到应用内存
+    fn list_achievement_groups(
+        &self,
+        game_id: &str,
+    ) -> impl Future<Output = RepositoryResult<Vec<crate::achievements::AchievementGroup>>> + Send;
     /// 删除创建时间早于截止时间的审计日志
     fn delete_audit_logs_before(
         &self,
@@ -97,11 +102,11 @@ pub trait ApplicationRepository: Send + Sync {
         id: &str,
     ) -> impl Future<Output = RepositoryResult<Option<GameDataEntry>>> + Send;
 
-    /// 分页读取游戏数据原始条目
-    fn list_game_data_raw(
+    /// 分页读取游戏数据同步状态
+    fn list_game_data_sync_state(
         &self,
-        filter: ListGameDataRawFilter,
-    ) -> impl Future<Output = RepositoryResult<(u64, Vec<GameDataRawItem>)>> + Send;
+        filter: ListGameDataSyncStateFilter,
+    ) -> impl Future<Output = RepositoryResult<(u64, Vec<GameDataSyncState>)>> + Send;
 
     /// 同步一个游戏的单个数据集合
     fn sync_game_data_collection(

@@ -2,7 +2,7 @@ use akasha_application::games::GameSummary;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::features::news::dto::{NewsCount, NewsItemResponse, RecentNews};
+use crate::features::news::dto::{NewsCount, RecentNews};
 use crate::http::response::public_asset_url;
 
 const GAME_ICON_SIZES: [u16; 3] = [64, 128, 256];
@@ -51,29 +51,12 @@ impl GameResponse {
             cover: public_asset_url(asset_base_url, value.cover),
             icon: public_asset_url(asset_base_url, value.icon),
             icon_variants,
-            news_count: NewsCount {
-                total: value.news_count.total,
-                article: value.news_count.article,
-                video: value.news_count.video,
-            },
-            recent_news: RecentNews {
-                article: value
-                    .recent_news
-                    .article
-                    .into_iter()
-                    .map(|news| {
-                        NewsItemResponse::from_summary(news, game_cover.as_deref(), asset_base_url)
-                    })
-                    .collect(),
-                video: value
-                    .recent_news
-                    .video
-                    .into_iter()
-                    .map(|news| {
-                        NewsItemResponse::from_summary(news, game_cover.as_deref(), asset_base_url)
-                    })
-                    .collect(),
-            },
+            news_count: value.news_count.into(),
+            recent_news: RecentNews::from_projection(
+                value.recent_news,
+                game_cover.as_deref(),
+                asset_base_url,
+            ),
         }
     }
 }

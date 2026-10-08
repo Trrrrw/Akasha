@@ -1,3 +1,4 @@
+mod achievements;
 pub(crate) mod admin;
 mod dto;
 pub(crate) mod endpoints;
@@ -20,6 +21,8 @@ pub(crate) fn public_router() -> OpenApiRouter<AppState> {
     use utoipa_axum::routes;
 
     OpenApiRouter::new()
+        .routes(routes!(achievements::list))
+        .routes(routes!(achievements::groups))
         .routes(routes!(endpoints::collections))
         .routes(routes!(endpoints::list))
         .routes(routes!(endpoints::detail))
@@ -31,8 +34,8 @@ pub(crate) fn admin_router() -> Router<AppState> {
         .merge(
             Router::new()
                 .route(
-                    "/games/{game_id}/data/{collection}/raw",
-                    get(admin::list_raw),
+                    "/games/{game_id}/data/{collection}/sync-state",
+                    get(admin::list_sync_state),
                 )
                 .route(
                     "/games/{game_id}/data/{collection}",
