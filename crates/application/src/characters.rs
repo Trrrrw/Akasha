@@ -3,7 +3,7 @@ use serde::Deserialize;
 use crate::{ApplicationError, ApplicationRepository, ApplicationServices, search::TextQuery};
 
 /// 原神角色列表筛选条件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct YsCharacterListFilter {
     pub query: Option<TextQuery>,
     pub element: Option<String>,
@@ -21,7 +21,7 @@ pub struct YsCharacterListFilter {
 }
 
 /// 星铁角色列表筛选条件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SrCharacterListFilter {
     pub query: Option<TextQuery>,
     pub path: Option<String>,
@@ -37,7 +37,7 @@ pub struct SrCharacterListFilter {
 }
 
 /// 绝区零角色列表筛选条件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ZzzCharacterListFilter {
     pub query: Option<TextQuery>,
     pub specialty_id: Option<i32>,

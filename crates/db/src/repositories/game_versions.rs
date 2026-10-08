@@ -5,8 +5,7 @@ use akasha_application::game_versions::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ColumnTrait, DbErr, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, TransactionError,
-    TransactionTrait,
+    ColumnTrait, DbErr, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, TransactionTrait,
     sea_query::{Expr, OnConflict},
 };
 use serde_json::json;
@@ -136,7 +135,7 @@ pub async fn sync(
             })
         })
         .await
-        .map_err(transaction_error)
+        .map_err(DbError::from)
 }
 
 async fn synchronize_ends(
@@ -184,14 +183,6 @@ fn version_changed(existing: &game_versions::Model, incoming: &game_versions::Mo
         || existing.source_id != incoming.source_id
         || existing.source_news_id != incoming.source_news_id
         || existing.source_hash != incoming.source_hash
-}
-
-fn transaction_error(error: TransactionError<DbErr>) -> DbError {
-    match error {
-        TransactionError::Connection(error) | TransactionError::Transaction(error) => {
-            DbError::Query(error)
-        }
-    }
 }
 
 impl From<game_versions::Model> for GameVersion {

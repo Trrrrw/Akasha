@@ -1,3 +1,6 @@
+mod query;
+use query::*;
+
 use akasha_application::calendar::{CalendarEvent, ListCalendarEventsFilter};
 use axum::{
     Json,
@@ -6,15 +9,12 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum_extra::extract::Query as MultiQuery;
-use chrono::{Datelike, Days, FixedOffset, NaiveDate, TimeZone, Timelike, Utc};
-use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, ToSchema};
+use chrono::{Datelike, NaiveDate, Utc};
+use serde::Serialize;
+use utoipa::ToSchema;
 
 use super::{
-    china_timezone,
-    endpoints::{
-        BirthdayReminderOptions, CharacterBirthdayResponse, append_birthdays_to_ics, list_birthdays,
-    },
+    endpoints::{CharacterBirthdayResponse, append_birthdays_to_ics, list_birthdays},
     ics::{AlarmOffset, AlarmRelation, IcsCalendar, IcsEvent},
 };
 use crate::{
@@ -29,123 +29,6 @@ use crate::{
 const INTERNAL_ENTRY_LIMIT: u64 = 10_000;
 const DEFAULT_JSON_LIMIT: u64 = 100;
 const MAX_JSON_LIMIT: u64 = 500;
-const DEFAULT_PAST_DAYS: u64 = 30;
-const DEFAULT_FUTURE_DAYS: u64 = 366;
-const MAX_RANGE_DAYS: i64 = 1_100;
-const MAX_REMINDER_MINUTES: u32 = 30 * 24 * 60;
-
-const GAME_ACTIVITY: &str = "游戏内活动";
-const WEB_ACTIVITY: &str = "网页活动";
-const VERSION_SCHEDULE: &str = "版本日程";
-const BANNER: &str = "卡池";
-const BATTLE_PASS: &str = "通行证";
-const CHARACTER_BIRTHDAY: &str = "角色生日";
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub(super) struct CalendarSelectorResponse {
-    /// 查询参数使用的完整值
-    value: String,
-    /// 前端显示名称
-    label: String,
-    /// 从属于该类型的细分类筛选值
-    children: Vec<CalendarSelectorOptionResponse>,
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub(super) struct CalendarSelectorOptionResponse {
-    /// 查询参数使用的完整值
-    value: String,
-    /// 前端显示名称
-    label: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub(super) struct CalendarCapabilitiesResponse {
-    /// JSON 日程地址
-    json: String,
-    /// ICS 订阅地址
-    ics: String,
-    /// 可用于 include 和 exclude 的完整筛选值
-    selectors: Vec<CalendarSelectorResponse>,
-}
-
-#[derive(Debug, Clone, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub(super) struct CalendarQuery {
-    /// 查询开始日期，格式为 YYYY-MM-DD，默认包含最近 30 天
-    from: Option<String>,
-    /// 查询结束日期，格式为 YYYY-MM-DD，默认为开始日期后 366 天
-    to: Option<String>,
-    /// 包含的筛选值，可重复；未提供时包含该游戏支持的全部日程
-    #[serde(default)]
-    include: Vec<String>,
-    /// 排除的筛选值，可重复，并在 include 之后生效
-    #[serde(default)]
-    exclude: Vec<String>,
-    /// JSON 每页数量，默认 100，最大 500；ICS 忽略该参数
-    limit: Option<u64>,
-    /// JSON 分页偏移，默认 0；ICS 忽略该参数
-    offset: Option<u64>,
-}
-
-/// JSON 与 ICS 共用的日程筛选参数
-#[derive(Debug, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-#[expect(dead_code, reason = "该类型只为 OpenAPI 描述 ICS 的公共筛选参数")]
-pub(super) struct CalendarFilterParams {
-    /// 查询开始日期，格式为 YYYY-MM-DD，默认从今天开始
-    from: Option<String>,
-    /// 查询结束日期，格式为 YYYY-MM-DD
-    to: Option<String>,
-    /// 包含的筛选值，可重复；未提供时包含该游戏支持的全部日程
-    #[serde(default)]
-    include: Vec<String>,
-    /// 排除的筛选值，可重复，并在 include 之后生效
-    #[serde(default)]
-    exclude: Vec<String>,
-}
-
-#[derive(Debug, Default, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub(super) struct CalendarIcsOptions {
-    /// 时段表示方式，span 为一个连续事件，milestones 为开始和结束两个节点
-    #[serde(default)]
-    #[param(inline)]
-    event_mode: CalendarIcsMode,
-    /// 普通日程开始前多少分钟提醒，最大 43200 分钟
-    start_reminder_minutes: Option<u32>,
-    /// 普通日程结束前多少分钟提醒，最大 43200 分钟
-    end_reminder_minutes: Option<u32>,
-    /// 生日当天的提醒时间，格式为 HH:MM
-    birthday_reminder_time: Option<String>,
-    /// 生日当天 00:00 前多少分钟提醒，最大 43200 分钟
-    birthday_reminder_minutes_before: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(super) struct CalendarIcsQuery {
-    from: Option<String>,
-    to: Option<String>,
-    #[serde(default)]
-    include: Vec<String>,
-    #[serde(default)]
-    exclude: Vec<String>,
-    #[serde(default)]
-    event_mode: CalendarIcsMode,
-    start_reminder_minutes: Option<u32>,
-    end_reminder_minutes: Option<u32>,
-    birthday_reminder_time: Option<String>,
-    birthday_reminder_minutes_before: Option<u32>,
-}
-
-#[derive(Debug, Default, Clone, Copy, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-enum CalendarIcsMode {
-    #[default]
-    Span,
-    Milestones,
-}
-
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub(super) struct CalendarEntryResponse {
     id: String,
@@ -216,7 +99,7 @@ pub(super) async fn calendar_json(
 
     let mut items = list_event_entries(&state, &game_id, range, &filters).await?;
     if filters.matches(CHARACTER_BIRTHDAY, &[]) {
-        let birthday_items = birthdays(&state, &game_id).await?;
+        let birthday_items = list_birthdays(&state, &game_id).await?;
         items.extend(materialize_birthdays(
             &game_id,
             &birthday_items,
@@ -277,7 +160,7 @@ pub(super) async fn calendar_ics(
     );
     append_timed_to_ics(&mut calendar, &game_id, &items, &options);
     if filters.matches(CHARACTER_BIRTHDAY, &[]) {
-        let birthday_items = birthdays(&state, &game_id)
+        let birthday_items = list_birthdays(&state, &game_id)
             .await?
             .into_iter()
             .filter(|item| birthday_occurs_in_range(item, range))
@@ -305,265 +188,6 @@ pub(super) async fn calendar_ics(
         .into_response())
 }
 
-#[derive(Clone, Copy)]
-struct DateRange {
-    from: NaiveDate,
-    to: NaiveDate,
-    start: chrono::DateTime<FixedOffset>,
-    end: chrono::DateTime<FixedOffset>,
-}
-
-impl CalendarQuery {
-    fn time_range(&self, json: bool) -> Result<DateRange, AppError> {
-        let timezone = china_timezone();
-        let today = Utc::now().with_timezone(&timezone).date_naive();
-        let default_from = if json {
-            today
-                .checked_sub_days(Days::new(DEFAULT_PAST_DAYS))
-                .unwrap_or(today)
-        } else {
-            today
-        };
-        let from = self
-            .from
-            .as_deref()
-            .map(parse_date)
-            .transpose()?
-            .unwrap_or(default_from);
-        let to = self
-            .to
-            .as_deref()
-            .map(parse_date)
-            .transpose()?
-            .unwrap_or_else(|| {
-                from.checked_add_days(Days::new(DEFAULT_FUTURE_DAYS))
-                    .unwrap_or(from)
-            });
-        if from >= to || (to - from).num_days() > MAX_RANGE_DAYS {
-            return Err(AppError::BadRequest(
-                "calendar date range must be positive and at most 1100 days".to_owned(),
-            ));
-        }
-        let start = timezone
-            .from_local_datetime(&from.and_hms_opt(0, 0, 0).expect("midnight should be valid"))
-            .single()
-            .expect("fixed offset should resolve local time");
-        let end = timezone
-            .from_local_datetime(&to.and_hms_opt(0, 0, 0).expect("midnight should be valid"))
-            .single()
-            .expect("fixed offset should resolve local time");
-        Ok(DateRange {
-            from,
-            to,
-            start,
-            end,
-        })
-    }
-}
-
-impl CalendarIcsQuery {
-    fn into_parts(self) -> (CalendarQuery, CalendarIcsOptions) {
-        (
-            CalendarQuery {
-                from: self.from,
-                to: self.to,
-                include: self.include,
-                exclude: self.exclude,
-                limit: None,
-                offset: None,
-            },
-            CalendarIcsOptions {
-                event_mode: self.event_mode,
-                start_reminder_minutes: self.start_reminder_minutes,
-                end_reminder_minutes: self.end_reminder_minutes,
-                birthday_reminder_time: self.birthday_reminder_time,
-                birthday_reminder_minutes_before: self.birthday_reminder_minutes_before,
-            },
-        )
-    }
-}
-
-impl CalendarIcsOptions {
-    fn validate(&self) -> Result<(), AppError> {
-        if self
-            .start_reminder_minutes
-            .is_some_and(|value| value > MAX_REMINDER_MINUTES)
-            || self
-                .end_reminder_minutes
-                .is_some_and(|value| value > MAX_REMINDER_MINUTES)
-            || self
-                .birthday_reminder_minutes_before
-                .is_some_and(|value| value > MAX_REMINDER_MINUTES)
-        {
-            return Err(AppError::BadRequest(
-                "calendar reminders must be between 0 and 43200 minutes".to_owned(),
-            ));
-        }
-        let _ = self.birthday_options()?;
-        Ok(())
-    }
-
-    fn birthday_options(&self) -> Result<BirthdayReminderOptions, AppError> {
-        let reminder_time_minutes = self
-            .birthday_reminder_time
-            .as_deref()
-            .map(str::trim)
-            .map(|value| {
-                let time = chrono::NaiveTime::parse_from_str(value, "%H:%M").map_err(|_| {
-                    AppError::BadRequest("birthday_reminder_time must use HH:MM".to_owned())
-                })?;
-                Ok::<u32, AppError>(time.hour() * 60 + time.minute())
-            })
-            .transpose()?;
-        Ok(BirthdayReminderOptions {
-            reminder_time_minutes,
-            reminder_minutes_before: self.birthday_reminder_minutes_before,
-        })
-    }
-}
-
-#[derive(Debug)]
-struct SelectorFilter {
-    kinds: Vec<String>,
-    include: Vec<String>,
-    exclude: Vec<String>,
-}
-
-impl SelectorFilter {
-    fn new(
-        include: &[String],
-        exclude: &[String],
-        capability: &CalendarCapabilitiesResponse,
-    ) -> Result<Self, AppError> {
-        let valid = flatten_selector_values(&capability.selectors);
-        let normalize = |values: &[String]| -> Result<Vec<String>, AppError> {
-            let mut result = Vec::new();
-            for value in values {
-                let value = value.trim();
-                if value.is_empty() || result.iter().any(|existing| existing == value) {
-                    continue;
-                }
-                if !valid.contains(&value) {
-                    return Err(AppError::BadRequest(format!(
-                        "unsupported calendar selector: {value}"
-                    )));
-                }
-                result.push(value.to_owned());
-            }
-            Ok(result)
-        };
-        Ok(Self {
-            kinds: capability
-                .selectors
-                .iter()
-                .map(|selector| selector.value.clone())
-                .collect(),
-            include: normalize(include)?,
-            exclude: normalize(exclude)?,
-        })
-    }
-
-    fn matches(&self, kind: &str, labels: &[String]) -> bool {
-        if !self.kinds.iter().any(|value| value == kind) {
-            return false;
-        }
-        let selector_matches = |selector: &str| {
-            selector == kind
-                || selector
-                    .strip_prefix(&format!("{kind}:"))
-                    .is_some_and(|label| labels.iter().any(|value| value == label))
-        };
-        (self.include.is_empty() || self.include.iter().any(|value| selector_matches(value)))
-            && !self.exclude.iter().any(|value| selector_matches(value))
-    }
-
-    fn event_kinds(&self) -> Vec<String> {
-        self.kinds
-            .iter()
-            .filter(|kind| kind.as_str() != CHARACTER_BIRTHDAY)
-            .filter(|kind| {
-                self.include.is_empty()
-                    || self.include.iter().any(|selector| {
-                        selector == kind.as_str() || selector.starts_with(&format!("{kind}:"))
-                    })
-            })
-            .filter(|kind| {
-                !self
-                    .exclude
-                    .iter()
-                    .any(|selector| selector == kind.as_str())
-            })
-            .cloned()
-            .collect()
-    }
-}
-
-fn capabilities(game_id: &str) -> Result<CalendarCapabilitiesResponse, AppError> {
-    let selectors = match game_id {
-        "ys" => vec![
-            selector(
-                GAME_ACTIVITY,
-                &["七圣召唤", "千星奇域", "幻想真境剧诗", "深境螺旋"],
-            ),
-            selector(WEB_ACTIVITY, &[]),
-            selector(VERSION_SCHEDULE, &["版本维护", "前瞻特别节目"]),
-            selector(BANNER, &[]),
-            selector(BATTLE_PASS, &[]),
-            selector(CHARACTER_BIRTHDAY, &[]),
-        ],
-        "sr" => vec![
-            selector(GAME_ACTIVITY, &[]),
-            selector(WEB_ACTIVITY, &[]),
-            selector(VERSION_SCHEDULE, &["版本维护", "前瞻特别节目"]),
-            selector(BANNER, &[]),
-            selector(BATTLE_PASS, &[]),
-            selector(CHARACTER_BIRTHDAY, &[]),
-        ],
-        "zzz" => vec![
-            selector(GAME_ACTIVITY, &[]),
-            selector(WEB_ACTIVITY, &[]),
-            selector(VERSION_SCHEDULE, &["版本维护", "前瞻特别节目"]),
-            selector(BANNER, &["代理人调频", "音擎调频"]),
-            selector(BATTLE_PASS, &[]),
-            selector(CHARACTER_BIRTHDAY, &[]),
-        ],
-        _ => {
-            return Err(AppError::NotFound(format!(
-                "calendar is not available for game {game_id}"
-            )));
-        }
-    };
-    Ok(CalendarCapabilitiesResponse {
-        json: format!("/api/v1/games/{game_id}/calendar"),
-        ics: format!("/api/v1/games/{game_id}/calendar.ics"),
-        selectors,
-    })
-}
-
-fn selector(kind: &str, children: &[&str]) -> CalendarSelectorResponse {
-    CalendarSelectorResponse {
-        value: kind.to_owned(),
-        label: kind.to_owned(),
-        children: children
-            .iter()
-            .map(|label| CalendarSelectorOptionResponse {
-                value: format!("{kind}:{label}"),
-                label: (*label).to_owned(),
-            })
-            .collect(),
-    }
-}
-
-fn flatten_selector_values(selectors: &[CalendarSelectorResponse]) -> Vec<&str> {
-    selectors
-        .iter()
-        .flat_map(|selector| {
-            std::iter::once(selector.value.as_str())
-                .chain(selector.children.iter().map(|child| child.value.as_str()))
-        })
-        .collect()
-}
-
 async fn list_event_entries(
     state: &AppState,
     game_id: &str,
@@ -589,13 +213,6 @@ async fn list_event_entries(
         .filter(|event| filters.matches(&event.kind, &event.labels))
         .map(|event| CalendarEntryResponse::from_event(event, &state.config().asset_base_url))
         .collect())
-}
-
-async fn birthdays(
-    state: &AppState,
-    game_id: &str,
-) -> Result<Vec<CharacterBirthdayResponse>, AppError> {
-    list_birthdays(state, game_id).await
 }
 
 fn materialize_birthdays(
@@ -740,171 +357,5 @@ fn append_timed_to_ics(
     }
 }
 
-fn parse_date(value: &str) -> Result<NaiveDate, AppError> {
-    NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
-        .map_err(|_| AppError::BadRequest("calendar dates must use YYYY-MM-DD".to_owned()))
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_repeated_ics_selectors() {
-        let uri = "/calendar.ics?include=版本日程&include=角色生日&exclude=版本日程%3A版本维护"
-            .parse()
-            .expect("test URI should be valid");
-        let MultiQuery(query) = MultiQuery::<CalendarIcsQuery>::try_from_uri(&uri)
-            .expect("ICS query should deserialize");
-        let (filter, _) = query.into_parts();
-        assert_eq!(filter.include, ["版本日程", "角色生日"]);
-        assert_eq!(filter.exclude, ["版本日程:版本维护"]);
-    }
-
-    #[test]
-    fn exposes_complete_selector_values() {
-        let capability = capabilities("ys").expect("ys should support calendar");
-        let values = flatten_selector_values(&capability.selectors);
-        assert!(values.contains(&"游戏内活动"));
-        assert!(values.contains(&"游戏内活动:七圣召唤"));
-        assert!(values.contains(&"游戏内活动:幻想真境剧诗"));
-        assert!(values.contains(&"游戏内活动:深境螺旋"));
-        assert!(values.contains(&"版本日程:前瞻特别节目"));
-        assert!(values.contains(&"角色生日"));
-    }
-
-    #[test]
-    fn exposes_zzz_calendar_selectors() {
-        let capability = capabilities("zzz").expect("zzz should support calendar");
-        let values = flatten_selector_values(&capability.selectors);
-        assert!(values.contains(&"游戏内活动"));
-        assert!(values.contains(&"网页活动"));
-        assert!(values.contains(&"版本日程:版本维护"));
-        assert!(values.contains(&"卡池:代理人调频"));
-        assert!(values.contains(&"卡池:音擎调频"));
-        assert!(values.contains(&"通行证"));
-        assert!(values.contains(&"角色生日"));
-    }
-
-    #[test]
-    fn applies_include_then_exclude() {
-        let capability = capabilities("ys").expect("ys should support calendar");
-        let filter = SelectorFilter::new(
-            &[GAME_ACTIVITY.to_owned()],
-            &["游戏内活动:七圣召唤".to_owned()],
-            &capability,
-        )
-        .expect("selectors should be valid");
-        assert!(filter.matches(GAME_ACTIVITY, &[]));
-        assert!(!filter.matches(GAME_ACTIVITY, &["七圣召唤".to_owned()]));
-        assert!(!filter.matches(WEB_ACTIVITY, &[]));
-        assert_eq!(filter.event_kinds(), [GAME_ACTIVITY]);
-    }
-
-    #[test]
-    fn materializes_leap_day_on_february_last_day() {
-        assert_eq!(
-            birthday_date(2025, 2, 29),
-            NaiveDate::from_ymd_opt(2025, 2, 28)
-        );
-        assert_eq!(
-            birthday_date(2028, 2, 29),
-            NaiveDate::from_ymd_opt(2028, 2, 29)
-        );
-    }
-
-    #[test]
-    fn rejects_unknown_selectors() {
-        let capability = capabilities("sr").expect("sr should support calendar");
-        assert!(matches!(
-            SelectorFilter::new(&["活动".to_owned()], &[], &capability),
-            Err(AppError::BadRequest(_))
-        ));
-    }
-
-    #[tokio::test]
-    async fn fixed_activities_use_shared_filters_assets_limits_and_ics_options() {
-        use akasha_application::ApplicationServices;
-        use akasha_db::{Db, DbOptions};
-
-        let application = ApplicationServices::new(
-            Db::init(DbOptions {
-                sqlite_path: ":memory:".to_owned(),
-            })
-            .await
-            .expect("isolated calendar database should initialize"),
-        );
-        let query = ListCalendarEventsFilter {
-            game_id: "ys".to_owned(),
-            start_time: chrono::DateTime::parse_from_rfc3339("2026-10-01T04:00:00+08:00").unwrap(),
-            end_time: chrono::DateTime::parse_from_rfc3339("2026-11-01T04:00:00+08:00").unwrap(),
-            kinds: vec![GAME_ACTIVITY.to_owned()],
-            limit: 500,
-        };
-        let events = application
-            .list_calendar_events(query.clone())
-            .await
-            .unwrap();
-        assert_eq!(events.len(), 3);
-        assert_eq!(events[0].id, "monthly-spiral-abyss-2026-09");
-        assert_eq!(
-            events[0].cover.as_deref(),
-            Some("/assets/games/ys/cover.avif")
-        );
-        let limited = application
-            .list_calendar_events(ListCalendarEventsFilter { limit: 1, ..query })
-            .await
-            .unwrap();
-        assert_eq!(limited.len(), 1);
-        assert_eq!(limited[0].id, events[0].id);
-
-        let capability = capabilities("ys").unwrap();
-        let include =
-            SelectorFilter::new(&["游戏内活动:幻想真境剧诗".to_owned()], &[], &capability).unwrap();
-        let exclude = SelectorFilter::new(
-            &[GAME_ACTIVITY.to_owned()],
-            &["游戏内活动:深境螺旋".to_owned()],
-            &capability,
-        )
-        .unwrap();
-        let items = events
-            .into_iter()
-            .filter(|event| include.matches(&event.kind, &event.labels))
-            .map(|event| {
-                assert!(exclude.matches(&event.kind, &event.labels));
-                CalendarEntryResponse::from_event(event, "https://assets.example")
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].title, "幻想真境剧诗 · 2026年10月期");
-        assert_eq!(items[0].start, "2026-09-30T20:00:00Z");
-        assert_eq!(items[0].end, "2026-10-31T20:00:00Z");
-        assert_eq!(
-            items[0].cover.as_deref(),
-            Some("https://assets.example/assets/games/ys/imaginarium-theater.png")
-        );
-        assert!(!items[0].all_day);
-
-        for (mode, event_count) in [(CalendarIcsMode::Span, 1), (CalendarIcsMode::Milestones, 2)] {
-            let mut calendar = IcsCalendar::new("-//Akasha//Test//ZH-CN", "原神日程");
-            append_timed_to_ics(
-                &mut calendar,
-                "ys",
-                &items,
-                &CalendarIcsOptions {
-                    event_mode: mode,
-                    start_reminder_minutes: Some(30),
-                    end_reminder_minutes: Some(1440),
-                    ..Default::default()
-                },
-            );
-            let output = calendar.finish();
-            assert_eq!(output.matches("BEGIN:VEVENT").count(), event_count);
-            assert!(output.contains("DTSTART:20260930T200000Z"));
-            assert!(output.contains("幻想真境剧诗 · 2026年10月期"));
-            assert!(output.contains("20261031T200000Z"));
-            assert!(output.contains("TRIGGER;RELATED=START:-PT30M"));
-            assert!(output.contains("-P1D"));
-        }
-    }
-}
+mod tests;
