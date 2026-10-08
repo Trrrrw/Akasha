@@ -6,7 +6,6 @@ use axum::{
     extract::{Path, State},
     http::HeaderMap,
 };
-use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -24,25 +23,8 @@ const MAX_LABELS_PER_EVENT: usize = 16;
 #[derive(Deserialize)]
 pub(crate) struct SyncCalendarEventsRequest {
     replace: bool,
-    entries: Vec<CalendarEventRequest>,
+    entries: Vec<CalendarEventInput>,
     audit: Option<AuditRequest>,
-}
-
-#[derive(Deserialize)]
-struct CalendarEventRequest {
-    id: String,
-    kind: String,
-    title: String,
-    start_time: DateTime<FixedOffset>,
-    end_time: DateTime<FixedOffset>,
-    version_id: Option<String>,
-    start_version_id: Option<String>,
-    cover: Option<String>,
-    labels: Vec<String>,
-    source_id: String,
-    source_news_id: String,
-    source_url: String,
-    source_hash: String,
 }
 
 #[derive(Serialize)]
@@ -69,11 +51,7 @@ pub(crate) async fn sync_entries(
         .sync_calendar_events(SyncCalendarEventsCommand {
             game_id,
             replace: body.replace,
-            events: body
-                .entries
-                .into_iter()
-                .map(CalendarEventInput::from)
-                .collect(),
+            events: body.entries,
             audit,
         })
         .await?;
@@ -96,26 +74,6 @@ fn validate_request(body: &SyncCalendarEventsRequest) -> Result<(), AppError> {
         ));
     }
     Ok(())
-}
-
-impl From<CalendarEventRequest> for CalendarEventInput {
-    fn from(value: CalendarEventRequest) -> Self {
-        Self {
-            id: value.id,
-            kind: value.kind,
-            title: value.title,
-            start_time: value.start_time,
-            end_time: value.end_time,
-            version_id: value.version_id,
-            start_version_id: value.start_version_id,
-            cover: value.cover,
-            labels: value.labels,
-            source_id: value.source_id,
-            source_news_id: value.source_news_id,
-            source_url: value.source_url,
-            source_hash: value.source_hash,
-        }
-    }
 }
 
 impl From<SyncCalendarEventsResult> for SyncCalendarEventsResponse {

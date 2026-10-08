@@ -119,41 +119,29 @@ fn filtered_query(filter: &NewsFilter) -> Result<Select<news::Entity>, DbError> 
     }
 
     if !filter.character_ids.is_empty() {
-        let character_news_ids = match filter.game_id.as_str() {
-            "ys" => ys_news_characters_link::Entity::find()
-                .select_only()
-                .column(ys_news_characters_link::Column::NewsId)
-                .filter(ys_news_characters_link::Column::GameId.eq(&filter.game_id))
-                .filter(ys_news_characters_link::Column::SourceId.eq(&filter.source_id))
-                .filter(
-                    ys_news_characters_link::Column::CharacterId
-                        .is_in(filter.character_ids.iter().cloned()),
-                )
-                .into_query(),
-            "sr" => sr_news_characters_link::Entity::find()
-                .select_only()
-                .column(sr_news_characters_link::Column::NewsId)
-                .filter(sr_news_characters_link::Column::GameId.eq(&filter.game_id))
-                .filter(sr_news_characters_link::Column::SourceId.eq(&filter.source_id))
-                .filter(
-                    sr_news_characters_link::Column::CharacterId
-                        .is_in(filter.character_ids.iter().cloned()),
-                )
-                .into_query(),
-            "zzz" => zzz_news_characters_link::Entity::find()
-                .select_only()
-                .column(zzz_news_characters_link::Column::NewsId)
-                .filter(zzz_news_characters_link::Column::GameId.eq(&filter.game_id))
-                .filter(zzz_news_characters_link::Column::SourceId.eq(&filter.source_id))
-                .filter(
-                    zzz_news_characters_link::Column::CharacterId
-                        .is_in(filter.character_ids.iter().cloned()),
-                )
-                .into_query(),
-            game_id => {
-                return Err(DbError::Query(sea_orm::DbErr::Custom(format!(
-                    "character filtering is not supported for game {game_id}"
-                ))));
+        let character_news_ids = {
+            macro_rules! query_game {
+                ($link:ident) => {{
+                    $link::Entity::find()
+                        .select_only()
+                        .column($link::Column::NewsId)
+                        .filter($link::Column::GameId.eq(&filter.game_id))
+                        .filter($link::Column::SourceId.eq(&filter.source_id))
+                        .filter(
+                            $link::Column::CharacterId.is_in(filter.character_ids.iter().cloned()),
+                        )
+                        .into_query()
+                }};
+            }
+            match filter.game_id.as_str() {
+                "ys" => query_game!(ys_news_characters_link),
+                "sr" => query_game!(sr_news_characters_link),
+                "zzz" => query_game!(zzz_news_characters_link),
+                game_id => {
+                    return Err(DbError::Query(sea_orm::DbErr::Custom(format!(
+                        "character filtering is not supported for game {game_id}"
+                    ))));
+                }
             }
         };
         query = query.filter(news::Column::Id.in_subquery(character_news_ids));
@@ -575,62 +563,30 @@ async fn news_characters_map(
         return Ok(HashMap::new());
     }
 
-    let rows = match game_id {
-        "ys" => {
-            ys_news_characters_link::Entity::find()
-                .select_only()
-                .column(ys_news_characters_link::Column::NewsId)
-                .column(ys_news_characters_link::Column::CharacterId)
-                .column(ys_game_data::Column::Name)
-                .join(
-                    JoinType::InnerJoin,
-                    ys_news_characters_link::Relation::YsGameData.def(),
-                )
-                .filter(ys_news_characters_link::Column::GameId.eq(game_id))
-                .filter(ys_news_characters_link::Column::SourceId.eq(source_id))
-                .filter(ys_news_characters_link::Column::NewsId.is_in(news_ids.iter().cloned()))
-                .order_by_asc(ys_news_characters_link::Column::CharacterId)
-                .into_tuple::<(String, String, String)>()
-                .all(db.conn())
-                .await
+    let rows = {
+        macro_rules! query_game {
+            ($link:ident, $data:ident, $relation:ident) => {{
+                $link::Entity::find()
+                    .select_only()
+                    .column($link::Column::NewsId)
+                    .column($link::Column::CharacterId)
+                    .column($data::Column::Name)
+                    .join(JoinType::InnerJoin, $link::Relation::$relation.def())
+                    .filter($link::Column::GameId.eq(game_id))
+                    .filter($link::Column::SourceId.eq(source_id))
+                    .filter($link::Column::NewsId.is_in(news_ids.iter().cloned()))
+                    .order_by_asc($link::Column::CharacterId)
+                    .into_tuple::<(String, String, String)>()
+                    .all(db.conn())
+                    .await
+            }};
         }
-        "sr" => {
-            sr_news_characters_link::Entity::find()
-                .select_only()
-                .column(sr_news_characters_link::Column::NewsId)
-                .column(sr_news_characters_link::Column::CharacterId)
-                .column(sr_game_data::Column::Name)
-                .join(
-                    JoinType::InnerJoin,
-                    sr_news_characters_link::Relation::SrGameData.def(),
-                )
-                .filter(sr_news_characters_link::Column::GameId.eq(game_id))
-                .filter(sr_news_characters_link::Column::SourceId.eq(source_id))
-                .filter(sr_news_characters_link::Column::NewsId.is_in(news_ids.iter().cloned()))
-                .order_by_asc(sr_news_characters_link::Column::CharacterId)
-                .into_tuple::<(String, String, String)>()
-                .all(db.conn())
-                .await
+        match game_id {
+            "ys" => query_game!(ys_news_characters_link, ys_game_data, YsGameData),
+            "sr" => query_game!(sr_news_characters_link, sr_game_data, SrGameData),
+            "zzz" => query_game!(zzz_news_characters_link, zzz_game_data, ZzzGameData),
+            _ => return Ok(HashMap::new()),
         }
-        "zzz" => {
-            zzz_news_characters_link::Entity::find()
-                .select_only()
-                .column(zzz_news_characters_link::Column::NewsId)
-                .column(zzz_news_characters_link::Column::CharacterId)
-                .column(zzz_game_data::Column::Name)
-                .join(
-                    JoinType::InnerJoin,
-                    zzz_news_characters_link::Relation::ZzzGameData.def(),
-                )
-                .filter(zzz_news_characters_link::Column::GameId.eq(game_id))
-                .filter(zzz_news_characters_link::Column::SourceId.eq(source_id))
-                .filter(zzz_news_characters_link::Column::NewsId.is_in(news_ids.iter().cloned()))
-                .order_by_asc(zzz_news_characters_link::Column::CharacterId)
-                .into_tuple::<(String, String, String)>()
-                .all(db.conn())
-                .await
-        }
-        _ => return Ok(HashMap::new()),
     }
     .map_err(DbError::Query)?;
 

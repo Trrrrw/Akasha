@@ -8,11 +8,15 @@ use utoipa::IntoParams;
 
 use crate::http::error::AppError;
 
+const YS: u8 = 1;
+const SR: u8 = 2;
+const ZZZ: u8 = 4;
+
 const DEFAULT_PAGE_LIMIT: u64 = 20;
 const MAX_PAGE_LIMIT: u64 = 100;
 
 /// 游戏数据列表查询参数
-#[derive(Debug, Deserialize, IntoParams)]
+#[derive(Debug, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(super) struct GameDataListQuery {
     /// 名称和摘要查询，支持空格 AND、竖线 OR、减号排除和引号短语
@@ -155,46 +159,18 @@ impl GameDataListQuery {
             return Ok(());
         }
 
-        let unsupported = match game_id {
-            "ys" => first_present(&[
-                ("path", self.path.is_some()),
-                ("combat_type", self.combat_type.is_some()),
-                ("camp", self.camp.is_some()),
-                ("specialty_id", self.specialty_id.is_some()),
-                ("specialty", self.specialty.is_some()),
-                ("element_id", self.element_id.is_some()),
-                ("hit_type_id", self.hit_type_id.is_some()),
-                ("hit_type", self.hit_type.is_some()),
-                ("camp_id", self.camp_id.is_some()),
-                ("gender", self.gender.is_some()),
-                ("special_element", self.special_element.is_some()),
-            ]),
-            "sr" => first_present(&[
-                ("element", self.element.is_some()),
-                ("weapon_type", self.weapon_type.is_some()),
-                ("region", self.region.is_some()),
-                ("affiliation", self.affiliation.is_some()),
-                ("specialty_id", self.specialty_id.is_some()),
-                ("specialty", self.specialty.is_some()),
-                ("element_id", self.element_id.is_some()),
-                ("hit_type_id", self.hit_type_id.is_some()),
-                ("hit_type", self.hit_type.is_some()),
-                ("camp_id", self.camp_id.is_some()),
-                ("gender", self.gender.is_some()),
-                ("special_element", self.special_element.is_some()),
-                ("special", self.special.is_some()),
-            ]),
-            "zzz" => first_present(&[
-                ("weapon_type", self.weapon_type.is_some()),
-                ("region", self.region.is_some()),
-                ("affiliation", self.affiliation.is_some()),
-                ("cv", self.cv.is_some()),
-                ("path", self.path.is_some()),
-                ("combat_type", self.combat_type.is_some()),
-                ("special", self.special.is_some()),
-            ]),
-            _ => None,
+        let game = match game_id {
+            "ys" => YS,
+            "sr" => SR,
+            "zzz" => ZZZ,
+            _ => 0,
         };
+        let unsupported =
+            self.character_fields()
+                .into_iter()
+                .find_map(|(name, present, supported)| {
+                    (present && game != 0 && supported & game == 0).then_some(name)
+                });
         if let Some(field) = unsupported {
             return Err(AppError::BadRequest(format!(
                 "{field} is not supported for {game_id} characters"
@@ -209,26 +185,39 @@ impl GameDataListQuery {
     }
 
     fn has_character_filter(&self) -> bool {
-        self.element.is_some()
-            || self.weapon_type.is_some()
-            || self.rarity.is_some()
-            || self.region.is_some()
-            || self.affiliation.is_some()
-            || self.cv.is_some()
-            || self.path.is_some()
-            || self.combat_type.is_some()
-            || self.camp.is_some()
-            || self.specialty_id.is_some()
-            || self.specialty.is_some()
-            || self.element_id.is_some()
-            || self.hit_type_id.is_some()
-            || self.hit_type.is_some()
-            || self.camp_id.is_some()
-            || self.gender.is_some()
-            || self.special_element.is_some()
-            || self.special.is_some()
-            || self.birthday_month.is_some()
-            || self.birthday_day.is_some()
+        self.character_fields()
+            .iter()
+            .any(|(_, present, _)| *present)
+    }
+
+    /// 支持位依次表示原神、星铁和绝区零；列表顺序同时保持校验错误优先级
+    fn character_fields(&self) -> [(&'static str, bool, u8); 20] {
+        [
+            ("element", self.element.is_some(), YS | ZZZ),
+            ("weapon_type", self.weapon_type.is_some(), YS),
+            ("rarity", self.rarity.is_some(), YS | SR | ZZZ),
+            ("region", self.region.is_some(), YS),
+            ("affiliation", self.affiliation.is_some(), YS),
+            ("cv", self.cv.is_some(), YS | SR),
+            ("path", self.path.is_some(), SR),
+            ("combat_type", self.combat_type.is_some(), SR),
+            ("camp", self.camp.is_some(), SR | ZZZ),
+            ("specialty_id", self.specialty_id.is_some(), ZZZ),
+            ("specialty", self.specialty.is_some(), ZZZ),
+            ("element_id", self.element_id.is_some(), ZZZ),
+            ("hit_type_id", self.hit_type_id.is_some(), ZZZ),
+            ("hit_type", self.hit_type.is_some(), ZZZ),
+            ("camp_id", self.camp_id.is_some(), ZZZ),
+            ("gender", self.gender.is_some(), ZZZ),
+            ("special_element", self.special_element.is_some(), ZZZ),
+            ("special", self.special.is_some(), YS),
+            (
+                "birthday_month",
+                self.birthday_month.is_some(),
+                YS | SR | ZZZ,
+            ),
+            ("birthday_day", self.birthday_day.is_some(), YS | SR | ZZZ),
+        ]
     }
 }
 
@@ -271,42 +260,12 @@ fn non_empty(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn first_present<'a>(fields: &[(&'a str, bool)]) -> Option<&'a str> {
-    fields
-        .iter()
-        .find_map(|(name, present)| present.then_some(*name))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn empty_query() -> GameDataListQuery {
-        GameDataListQuery {
-            q: None,
-            element: None,
-            weapon_type: None,
-            rarity: None,
-            region: None,
-            affiliation: None,
-            cv: None,
-            path: None,
-            combat_type: None,
-            camp: None,
-            specialty_id: None,
-            specialty: None,
-            element_id: None,
-            hit_type_id: None,
-            hit_type: None,
-            camp_id: None,
-            gender: None,
-            special_element: None,
-            special: None,
-            birthday_month: None,
-            birthday_day: None,
-            limit: None,
-            offset: None,
-        }
+        GameDataListQuery::default()
     }
 
     #[test]

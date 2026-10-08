@@ -93,16 +93,7 @@ pub(crate) async fn sync_collection(
             "character collection must not be empty".to_owned(),
         ));
     }
-    if body.items.iter().any(|item| {
-        !valid_optional_asset_path(item.icon.as_deref())
-            || contains_external_url(&item.summary)
-            || item.detail.as_ref().is_some_and(contains_external_url)
-            || contains_external_url(&item.assets)
-    }) {
-        return Err(AppError::BadRequest(
-            "game data resources must use backend asset paths".to_owned(),
-        ));
-    }
+    validate_entries(&body.items)?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
     let result = state
         .application()
@@ -112,16 +103,7 @@ pub(crate) async fn sync_collection(
             items: body
                 .items
                 .into_iter()
-                .map(|item| GameDataEntry {
-                    collection: collection.clone(),
-                    id: item.id,
-                    name: item.name,
-                    icon: item.icon,
-                    summary: item.summary,
-                    detail: item.detail,
-                    assets: item.assets,
-                    source_hash: item.source_hash,
-                })
+                .map(|item| item.into_entry(&collection))
                 .collect(),
             audit,
         })
@@ -185,16 +167,7 @@ pub(crate) async fn update_collection(
             items: body
                 .items
                 .into_iter()
-                .map(|item| GameDataEntry {
-                    collection: collection.clone(),
-                    id: item.id,
-                    name: item.name,
-                    icon: item.icon,
-                    summary: item.summary,
-                    detail: item.detail,
-                    assets: item.assets,
-                    source_hash: item.source_hash,
-                })
+                .map(|item| item.into_entry(&collection))
                 .collect(),
             removed_ids: body.removed_ids,
             audit,
@@ -280,6 +253,21 @@ impl From<SyncGameDataCollectionResult> for SyncGameDataCollectionResponse {
             deleted: value.deleted,
             changed: value.changed,
             total: value.total,
+        }
+    }
+}
+
+impl GameDataEntryRequest {
+    fn into_entry(self, collection: &str) -> GameDataEntry {
+        GameDataEntry {
+            collection: collection.to_owned(),
+            id: self.id,
+            name: self.name,
+            icon: self.icon,
+            summary: self.summary,
+            detail: self.detail,
+            assets: self.assets,
+            source_hash: self.source_hash,
         }
     }
 }

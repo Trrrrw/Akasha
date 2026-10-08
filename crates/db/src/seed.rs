@@ -2,176 +2,70 @@ use sea_orm::{ActiveValue::Set, EntityTrait, TransactionError, TransactionTrait}
 
 use crate::entities::{games, news_sources};
 
-const GAME_SEEDS: &[GameSeed] = &[
-    GameSeed {
-        id: "ys",
-        name_en: "Genshin Impact",
-        name_zh: "原神",
-        index: 1,
-        cover: Some("/assets/games/ys/cover.avif"),
-        icon: Some("/assets/games/ys/icon.avif"),
-    },
-    GameSeed {
-        id: "sr",
-        name_en: "Honkai: Star Rail",
-        name_zh: "崩坏：星穹铁道",
-        index: 2,
-        cover: Some("/assets/games/sr/cover.avif"),
-        icon: Some("/assets/games/sr/icon.avif"),
-    },
-    GameSeed {
-        id: "zzz",
-        name_en: "Zenless Zone Zero",
-        name_zh: "绝区零",
-        index: 3,
-        cover: Some("/assets/games/zzz/cover.avif"),
-        icon: Some("/assets/games/zzz/icon.avif"),
-    },
-    GameSeed {
-        id: "bh3",
-        name_en: "Honkai Impact 3rd",
-        name_zh: "崩坏3",
-        index: 4,
-        cover: Some("/assets/games/bh3/cover.avif"),
-        icon: Some("/assets/games/bh3/icon.avif"),
-    },
-    GameSeed {
-        id: "wd",
-        name_en: "Tears of Themis",
-        name_zh: "未定事件簿",
-        index: 5,
-        cover: Some("/assets/games/wd/cover.avif"),
-        icon: Some("/assets/games/wd/icon.avif"),
-    },
-    GameSeed {
-        id: "planet",
-        name_en: "Petit Planet",
-        name_zh: "星布谷地",
-        index: 6,
-        cover: Some("/assets/games/planet/cover.avif"),
-        icon: Some("/assets/games/planet/icon.avif"),
-    },
-    GameSeed {
-        id: "hna",
-        name_en: "Honkai: Nexus Anima",
-        name_zh: "崩坏：因缘精灵",
-        index: 7,
-        cover: Some("/assets/games/hna/cover.avif"),
-        icon: Some("/assets/games/hna/icon.avif"),
-    },
-    GameSeed {
-        id: "nodusfall",
-        name_en: "Nodusfall",
-        name_zh: "源初之结",
-        index: 8,
-        cover: Some("/assets/games/nodusfall/cover.avif"),
-        icon: Some("/assets/games/nodusfall/icon.avif"),
-    },
+/// 列表顺序决定游戏和来源的展示顺序，资源路径遵循统一目录约定
+const GAMES: &[(&str, &str, &str, &[&str])] = &[
+    (
+        "ys",
+        "Genshin Impact",
+        "原神",
+        &["web_cn", "mys", "web_os_zh_tw"],
+    ),
+    (
+        "sr",
+        "Honkai: Star Rail",
+        "崩坏：星穹铁道",
+        &["web_cn", "mys"],
+    ),
+    ("zzz", "Zenless Zone Zero", "绝区零", &["web_cn", "mys"]),
+    ("bh3", "Honkai Impact 3rd", "崩坏3", &["mys"]),
+    ("wd", "Tears of Themis", "未定事件簿", &["mys"]),
+    ("planet", "Petit Planet", "星布谷地", &["mys", "web_cn"]),
+    ("hna", "Honkai: Nexus Anima", "崩坏：因缘精灵", &["mys"]),
+    (
+        "nodusfall",
+        "Nodusfall",
+        "源初之结",
+        &["web_cn", "web_os_en_us"],
+    ),
 ];
 
-const NEWS_SOURCE_SEEDS: &[NewsSourceSeed] = &[
-    NewsSourceSeed {
-        id: "web_cn",
-        game_id: "ys",
-        name: "官方网站",
-        index: 1,
-    },
-    NewsSourceSeed {
-        id: "mys",
-        game_id: "ys",
-        name: "米游社",
-        index: 2,
-    },
-    NewsSourceSeed {
-        id: "web_os_zh_tw",
-        game_id: "ys",
-        name: "国际服官网（繁体中文）",
-        index: 3,
-    },
-    NewsSourceSeed {
-        id: "web_cn",
-        game_id: "sr",
-        name: "官方网站",
-        index: 1,
-    },
-    NewsSourceSeed {
-        id: "mys",
-        game_id: "sr",
-        name: "米游社",
-        index: 2,
-    },
-    NewsSourceSeed {
-        id: "web_cn",
-        game_id: "zzz",
-        name: "官方网站",
-        index: 1,
-    },
-    NewsSourceSeed {
-        id: "mys",
-        game_id: "zzz",
-        name: "米游社",
-        index: 2,
-    },
-    NewsSourceSeed {
-        id: "web_cn",
-        game_id: "planet",
-        name: "官方网站",
-        index: 2,
-    },
-    NewsSourceSeed {
-        id: "mys",
-        game_id: "planet",
-        name: "米游社",
-        index: 1,
-    },
-    NewsSourceSeed {
-        id: "mys",
-        game_id: "hna",
-        name: "米游社",
-        index: 1,
-    },
-    NewsSourceSeed {
-        id: "mys",
-        game_id: "bh3",
-        name: "米游社",
-        index: 1,
-    },
-    NewsSourceSeed {
-        id: "mys",
-        game_id: "wd",
-        name: "米游社",
-        index: 1,
-    },
-    NewsSourceSeed {
-        id: "web_cn",
-        game_id: "nodusfall",
-        name: "官方网站",
-        index: 1,
-    },
-    NewsSourceSeed {
-        id: "web_os_en_us",
-        game_id: "nodusfall",
-        name: "国际服官网（英语）",
-        index: 2,
-    },
-];
-
-/// 写入服务运行所需的游戏和新闻来源基础数据
+/// 写入服务运行所需的游戏和新闻来源基础数据，保留已有数据
 pub(crate) async fn apply(db: &sea_orm::DatabaseConnection) -> Result<(), sea_orm::DbErr> {
     db.transaction::<_, (), sea_orm::DbErr>(|txn| {
         Box::pin(async move {
-            games::Entity::insert_many(GAME_SEEDS.iter().map(GameSeed::active_model))
-                .on_conflict_do_nothing()
-                .exec(txn)
-                .await?;
-
-            news_sources::Entity::insert_many(
-                NEWS_SOURCE_SEEDS.iter().map(NewsSourceSeed::active_model),
-            )
+            games::Entity::insert_many(GAMES.iter().enumerate().map(|(index, (id, en, zh, _))| {
+                games::ActiveModel {
+                    id: Set((*id).to_owned()),
+                    name_en: Set((*en).to_owned()),
+                    name_zh: Set((*zh).to_owned()),
+                    index: Set(index as i64 + 1),
+                    cover: Set(Some(format!("/assets/games/{id}/cover.avif"))),
+                    icon: Set(Some(format!("/assets/games/{id}/icon.avif"))),
+                }
+            }))
             .on_conflict_do_nothing()
             .exec(txn)
             .await?;
-
+            news_sources::Entity::insert_many(GAMES.iter().flat_map(|(game, _, _, sources)| {
+                sources.iter().enumerate().map(move |(index, id)| {
+                    let name = match *id {
+                        "web_cn" => "官方网站",
+                        "mys" => "米游社",
+                        "web_os_zh_tw" => "国际服官网（繁体中文）",
+                        "web_os_en_us" => "国际服官网（英语）",
+                        _ => unreachable!("seed source must have a display name"),
+                    };
+                    news_sources::ActiveModel {
+                        id: Set((*id).to_owned()),
+                        game_id: Set((*game).to_owned()),
+                        name: Set(name.to_owned()),
+                        index: Set(index as i64 + 1),
+                    }
+                })
+            }))
+            .on_conflict_do_nothing()
+            .exec(txn)
+            .await?;
             Ok(())
         })
     })
@@ -179,46 +73,4 @@ pub(crate) async fn apply(db: &sea_orm::DatabaseConnection) -> Result<(), sea_or
     .map_err(|error| match error {
         TransactionError::Connection(error) | TransactionError::Transaction(error) => error,
     })
-}
-
-struct GameSeed {
-    id: &'static str,
-    name_en: &'static str,
-    name_zh: &'static str,
-    index: i64,
-    cover: Option<&'static str>,
-    icon: Option<&'static str>,
-}
-
-impl GameSeed {
-    /// 转换为可插入或更新的游戏 ActiveModel
-    fn active_model(&self) -> games::ActiveModel {
-        games::ActiveModel {
-            id: Set(self.id.to_owned()),
-            name_en: Set(self.name_en.to_owned()),
-            name_zh: Set(self.name_zh.to_owned()),
-            index: Set(self.index),
-            cover: Set(self.cover.map(str::to_owned)),
-            icon: Set(self.icon.map(str::to_owned)),
-        }
-    }
-}
-
-struct NewsSourceSeed {
-    id: &'static str,
-    game_id: &'static str,
-    name: &'static str,
-    index: i64,
-}
-
-impl NewsSourceSeed {
-    /// 转换为可插入或更新的新闻来源 ActiveModel
-    fn active_model(&self) -> news_sources::ActiveModel {
-        news_sources::ActiveModel {
-            id: Set(self.id.to_owned()),
-            game_id: Set(self.game_id.to_owned()),
-            name: Set(self.name.to_owned()),
-            index: Set(self.index),
-        }
-    }
 }

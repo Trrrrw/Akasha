@@ -44,7 +44,7 @@ pub(crate) struct UpdateNewsRequest {
     video_duration_ms: Option<i64>,
     tags: Vec<String>,
     /// 角色关联，缺省时保留已有关系
-    characters: Option<Vec<UpdateNewsCharacterRequest>>,
+    characters: Option<Vec<NewsCharacterInput>>,
     raw_data: Value,
     audit: Option<AuditRequest>,
 }
@@ -85,13 +85,6 @@ pub(crate) struct NewsRawItemResponse {
     video_playback: Option<String>,
     video_duration_ms: Option<i64>,
     raw_data: Value,
-}
-
-/// 新闻写入请求中的角色关联
-#[derive(Deserialize)]
-pub(crate) struct UpdateNewsCharacterRequest {
-    id: String,
-    name: String,
 }
 
 /// 读取 worker 重新解析所需的原始新闻
@@ -201,15 +194,7 @@ pub(crate) async fn update_news(
             video_playback,
             video_duration_ms: body.video_duration_ms,
             tags: body.tags,
-            characters: body.characters.map(|characters| {
-                characters
-                    .into_iter()
-                    .map(|character| NewsCharacterInput {
-                        id: character.id,
-                        name: character.name,
-                    })
-                    .collect()
-            }),
+            characters: body.characters,
             raw_data: body.raw_data,
             audit,
         })
@@ -259,33 +244,15 @@ pub(crate) async fn update_news(
 #[derive(Deserialize)]
 pub(crate) struct SyncTagsRequest {
     source_id: String,
-    tags: Vec<SyncNewsTagRequest>,
+    tags: Vec<NewsTagInput>,
     audit: Option<AuditRequest>,
-}
-
-/// 标签目录同步请求中的单个标签
-#[derive(Deserialize)]
-pub(crate) struct SyncNewsTagRequest {
-    name: String,
-    index: i64,
-    group: Option<String>,
-    group_index: Option<i64>,
 }
 
 /// 标签目录同步后的 HTTP 响应
 #[derive(Serialize)]
 pub(crate) struct SyncTagsResponse {
     changed: bool,
-    tags: Vec<SyncNewsTagResponse>,
-}
-
-/// 标签目录同步响应中的单个标签
-#[derive(Serialize)]
-pub(crate) struct SyncNewsTagResponse {
-    name: String,
-    index: i64,
-    group: Option<String>,
-    group_index: Option<i64>,
+    tags: Vec<NewsTagInput>,
 }
 
 /// 同步一个游戏新闻来源的标签目录
@@ -312,32 +279,14 @@ pub(crate) async fn sync_tags(
         .sync_news_tags(SyncNewsTagsCommand {
             game_id,
             source_id,
-            tags: body
-                .tags
-                .into_iter()
-                .map(|tag| NewsTagInput {
-                    name: tag.name,
-                    index: tag.index,
-                    group: tag.group,
-                    group_index: tag.group_index,
-                })
-                .collect(),
+            tags: body.tags,
             audit,
         })
         .await?;
 
     Ok(Json(SyncTagsResponse {
         changed: result.changed,
-        tags: result
-            .tags
-            .into_iter()
-            .map(|tag| SyncNewsTagResponse {
-                name: tag.name,
-                index: tag.index,
-                group: tag.group,
-                group_index: tag.group_index,
-            })
-            .collect(),
+        tags: result.tags,
     }))
 }
 
@@ -365,14 +314,7 @@ pub(crate) async fn update_tags(
         .replace_news_tags(ReplaceNewsTagsCommand {
             game_id,
             source_id,
-            updates: body
-                .updates
-                .into_iter()
-                .map(|update| NewsTagUpdate {
-                    id: update.id,
-                    tags: update.tags,
-                })
-                .collect(),
+            updates: body.updates,
             audit,
         })
         .await?;
@@ -384,30 +326,16 @@ pub(crate) async fn update_tags(
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsTagsRequest {
     source_id: String,
-    updates: Vec<UpdateNewsTagsItemRequest>,
+    updates: Vec<NewsTagUpdate>,
     audit: Option<AuditRequest>,
-}
-
-/// HTTP 请求体中一条新闻的替换标签集合
-#[derive(Deserialize)]
-pub(crate) struct UpdateNewsTagsItemRequest {
-    id: String,
-    tags: Vec<String>,
 }
 
 /// 替换多个新闻角色集合的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsCharactersRequest {
     source_id: String,
-    updates: Vec<UpdateNewsCharactersItemRequest>,
+    updates: Vec<NewsCharacterUpdate>,
     audit: Option<AuditRequest>,
-}
-
-/// HTTP 请求体中一条新闻的替换角色集合
-#[derive(Deserialize)]
-pub(crate) struct UpdateNewsCharactersItemRequest {
-    id: String,
-    characters: Vec<UpdateNewsCharacterRequest>,
 }
 
 /// 替换同一来源多条新闻的角色关联
@@ -434,21 +362,7 @@ pub(crate) async fn update_characters(
         .replace_news_characters(ReplaceNewsCharactersCommand {
             game_id,
             source_id,
-            updates: body
-                .updates
-                .into_iter()
-                .map(|update| NewsCharacterUpdate {
-                    id: update.id,
-                    characters: update
-                        .characters
-                        .into_iter()
-                        .map(|character| NewsCharacterInput {
-                            id: character.id,
-                            name: character.name,
-                        })
-                        .collect(),
-                })
-                .collect(),
+            updates: body.updates,
             audit,
         })
         .await?;

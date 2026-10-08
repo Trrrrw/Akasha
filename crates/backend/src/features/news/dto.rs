@@ -8,7 +8,7 @@ use super::video_duration_seconds;
 use crate::http::response::{public_asset_url, utc_timestamp};
 
 /// 公开新闻数量统计
-#[derive(Serialize, ToSchema)]
+#[derive(Default, Serialize, ToSchema)]
 #[schema(description = "新闻数量统计")]
 pub struct NewsCount {
     /// 新闻总数
@@ -20,7 +20,7 @@ pub struct NewsCount {
 }
 
 /// 公开新闻最近条目集合
-#[derive(Serialize, ToSchema)]
+#[derive(Default, Serialize, ToSchema)]
 #[schema(description = "标签的最近新闻")]
 pub struct RecentNews {
     /// 最新文章
@@ -72,25 +72,8 @@ impl NewsTagResponse {
         NewsTagResponse {
             name: value.name,
             index: value.index,
-            news_count: NewsCount {
-                total: value.news_count.total,
-                article: value.news_count.article,
-                video: value.news_count.video,
-            },
-            recent: RecentNews {
-                article: value
-                    .recent
-                    .article
-                    .into_iter()
-                    .map(|news| NewsItemResponse::from_summary(news, game_cover, asset_base_url))
-                    .collect(),
-                video: value
-                    .recent
-                    .video
-                    .into_iter()
-                    .map(|news| NewsItemResponse::from_summary(news, game_cover, asset_base_url))
-                    .collect(),
-            },
+            news_count: value.news_count.into(),
+            recent: RecentNews::from_projection(value.recent, game_cover, asset_base_url),
         }
     }
 }
@@ -183,41 +166,17 @@ impl NewsTagsResponse {
 impl NewsUntaggedResponse {
     /// 将应用层未分类统计转换为公开响应
     fn from_projection(value: NewsTag, game_cover: Option<&str>, asset_base_url: &str) -> Self {
-        let news_count = NewsCount {
-            total: value.news_count.total,
-            article: value.news_count.article,
-            video: value.news_count.video,
-        };
-        let recent = RecentNews {
-            article: value
-                .recent
-                .article
-                .into_iter()
-                .map(|news| NewsItemResponse::from_summary(news, game_cover, asset_base_url))
-                .collect(),
-            video: value
-                .recent
-                .video
-                .into_iter()
-                .map(|news| NewsItemResponse::from_summary(news, game_cover, asset_base_url))
-                .collect(),
-        };
-
-        Self { news_count, recent }
+        Self {
+            news_count: value.news_count.into(),
+            recent: RecentNews::from_projection(value.recent, game_cover, asset_base_url),
+        }
     }
 
     /// 在持久化实现未提供统计时返回稳定的空结构
     fn empty() -> Self {
         Self {
-            news_count: NewsCount {
-                total: 0,
-                article: 0,
-                video: 0,
-            },
-            recent: RecentNews {
-                article: Vec::new(),
-                video: Vec::new(),
-            },
+            news_count: NewsCount::default(),
+            recent: RecentNews::default(),
         }
     }
 }
@@ -452,6 +411,35 @@ fn effective_video_playback(value: &NewsSummary) -> Option<VideoPlayback> {
                 .is_some_and(|url| !url.trim().is_empty()))
         .then_some(VideoPlayback::Direct)
     })
+}
+
+impl From<akasha_application::news::NewsCount> for NewsCount {
+    fn from(value: akasha_application::news::NewsCount) -> Self {
+        Self {
+            total: value.total,
+            article: value.article,
+            video: value.video,
+        }
+    }
+}
+
+impl RecentNews {
+    pub(crate) fn from_projection(
+        value: akasha_application::news::RecentNews,
+        game_cover: Option<&str>,
+        asset_base_url: &str,
+    ) -> Self {
+        let convert = |items: Vec<NewsSummary>| {
+            items
+                .into_iter()
+                .map(|news| NewsItemResponse::from_summary(news, game_cover, asset_base_url))
+                .collect()
+        };
+        Self {
+            article: convert(value.article),
+            video: convert(value.video),
+        }
+    }
 }
 
 #[cfg(test)]

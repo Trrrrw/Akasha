@@ -13,7 +13,7 @@ macro_rules! game_data_repository {
 
             use sea_orm::{
                 ColumnTrait, DbErr, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
-                QueryOrder, QuerySelect, TransactionError, TransactionTrait,
+                QueryOrder, QuerySelect, TransactionTrait,
                 sea_query::{Expr, ExprTrait, OnConflict},
             };
             use serde_json::json;
@@ -154,29 +154,7 @@ macro_rules! game_data_repository {
                 db.conn()
                     .transaction::<_, SyncGameDataCollectionResult, DbErr>(|txn| {
                         Box::pin(async move {
-                            let mut incoming_ids = HashSet::with_capacity(command.items.len());
-                            let incoming = command
-                                .items
-                                .into_iter()
-                                .map(|item| {
-                                    if !incoming_ids.insert(item.id.clone()) {
-                                        return Err(DbErr::Custom(format!(
-                                            "duplicated {} game data id in {}: {}",
-                                            $game_id, command.collection, item.id
-                                        )));
-                                    }
-                                    Ok($entity::Model {
-                                        collection: command.collection.clone(),
-                                        id: item.id,
-                                        name: item.name,
-                                        icon: item.icon,
-                                        summary: item.summary,
-                                        detail: item.detail,
-                                        assets: item.assets,
-                                        source_hash: item.source_hash,
-                                    })
-                                })
-                                .collect::<Result<Vec<_>, DbErr>>()?;
+                            let (incoming, incoming_ids) = incoming(&command.collection, command.items)?;
                             let existing = $entity::Entity::find()
                                 .filter($entity::Column::Collection.eq(&command.collection))
                                 .all(txn)
@@ -195,17 +173,7 @@ macro_rules! game_data_repository {
                                     existing_by_id.get(row.id.as_str()).copied() != Some(row)
                                 });
 
-                            for chunk in incoming.chunks(50) {
-                                $entity::Entity::insert_many(
-                                    chunk
-                                        .iter()
-                                        .cloned()
-                                        .map(IntoActiveModel::into_active_model),
-                                )
-                                .on_conflict(upsert())
-                                .exec(txn)
-                                .await?;
-                            }
+                            write_entries(txn, &incoming).await?;
 
                             let stale_ids = existing
                                 .into_iter()
@@ -257,7 +225,7 @@ macro_rules! game_data_repository {
                         })
                     })
                     .await
-                    .map_err(transaction_error)
+                    .map_err(DbError::from)
             }
 
             pub async fn update(
@@ -267,29 +235,7 @@ macro_rules! game_data_repository {
                 db.conn()
                     .transaction::<_, SyncGameDataCollectionResult, DbErr>(|txn| {
                         Box::pin(async move {
-                            let mut incoming_ids = HashSet::with_capacity(command.items.len());
-                            let incoming = command
-                                .items
-                                .into_iter()
-                                .map(|item| {
-                                    if !incoming_ids.insert(item.id.clone()) {
-                                        return Err(DbErr::Custom(format!(
-                                            "duplicated {} game data id in {}: {}",
-                                            $game_id, command.collection, item.id
-                                        )));
-                                    }
-                                    Ok($entity::Model {
-                                        collection: command.collection.clone(),
-                                        id: item.id,
-                                        name: item.name,
-                                        icon: item.icon,
-                                        summary: item.summary,
-                                        detail: item.detail,
-                                        assets: item.assets,
-                                        source_hash: item.source_hash,
-                                    })
-                                })
-                                .collect::<Result<Vec<_>, DbErr>>()?;
+                            let (incoming, incoming_ids) = incoming(&command.collection, command.items)?;
                             let removed_ids = command
                                 .removed_ids
                                 .into_iter()
@@ -324,17 +270,7 @@ macro_rules! game_data_repository {
                                 .count() as u64;
                             let updated = incoming.len() as u64 - created;
 
-                            for chunk in incoming.chunks(50) {
-                                $entity::Entity::insert_many(
-                                    chunk
-                                        .iter()
-                                        .cloned()
-                                        .map(IntoActiveModel::into_active_model),
-                                )
-                                .on_conflict(upsert())
-                                .exec(txn)
-                                .await?;
-                            }
+                            write_entries(txn, &incoming).await?;
 
                             let removed_ids = removed_ids.into_iter().collect::<Vec<_>>();
                             let mut deleted = 0_u64;
@@ -387,7 +323,48 @@ macro_rules! game_data_repository {
                         })
                     })
                     .await
-                    .map_err(transaction_error)
+                    .map_err(DbError::from)
+            }
+
+            fn incoming(collection: &str, items: Vec<GameDataEntry>) -> Result<(Vec<$entity::Model>, HashSet<String>), DbErr> {
+                            let mut incoming_ids = HashSet::with_capacity(items.len());
+                            let incoming = items
+                                .into_iter()
+                                .map(|item| {
+                                    if !incoming_ids.insert(item.id.clone()) {
+                                        return Err(DbErr::Custom(format!(
+                                            "duplicated {} game data id in {}: {}",
+                                            $game_id, collection, item.id
+                                        )));
+                                    }
+                                    Ok($entity::Model {
+                                        collection: collection.to_owned(),
+                                        id: item.id,
+                                        name: item.name,
+                                        icon: item.icon,
+                                        summary: item.summary,
+                                        detail: item.detail,
+                                        assets: item.assets,
+                                        source_hash: item.source_hash,
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, DbErr>>()?;
+                Ok((incoming, incoming_ids))
+            }
+
+            async fn write_entries(txn: &sea_orm::DatabaseTransaction, incoming: &[$entity::Model]) -> Result<(), DbErr> {
+                            for chunk in incoming.chunks(50) {
+                                $entity::Entity::insert_many(
+                                    chunk
+                                        .iter()
+                                        .cloned()
+                                        .map(IntoActiveModel::into_active_model),
+                                )
+                                .on_conflict(upsert())
+                                .exec(txn)
+                                .await?;
+                            }
+                Ok(())
             }
 
             fn upsert() -> OnConflict {
@@ -418,12 +395,6 @@ macro_rules! game_data_repository {
                 }
             }
 
-            fn transaction_error(error: TransactionError<DbErr>) -> DbError {
-                match error {
-                    TransactionError::Connection(error)
-                    | TransactionError::Transaction(error) => DbError::Query(error),
-                }
-            }
         }
     };
 }

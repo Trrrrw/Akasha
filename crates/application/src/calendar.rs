@@ -34,7 +34,7 @@ pub struct ListCalendarEventsFilter {
 }
 
 /// Worker 提交的日程投影
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct CalendarEventInput {
     pub id: String,
     pub kind: String,
