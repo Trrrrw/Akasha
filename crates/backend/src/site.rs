@@ -67,6 +67,26 @@ mod tests {
     use super::{STATIC_CACHE_CONTROL, router};
 
     #[tokio::test]
+    async fn serves_both_bundled_image_formats_with_their_mime_types() {
+        for (extension, mime) in [("webp", "image/webp"), ("avif", "image/avif")] {
+            let app: Router =
+                router(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/games"));
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/assets/game-data/ys/icon-64.{extension}"))
+                        .body(Body::empty())
+                        .expect("应构造图片请求"),
+                )
+                .await
+                .expect("图片请求应成功");
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[axum::http::header::CONTENT_TYPE], mime);
+            assert_eq!(response.headers()[CACHE_CONTROL], STATIC_CACHE_CONTROL);
+        }
+    }
+
+    #[tokio::test]
     async fn adds_cache_control_to_static_assets() {
         let asset_dir = std::env::temp_dir().join(format!("akasha-assets-{}", Uuid::new_v4()));
         fs::create_dir_all(&asset_dir).expect("应创建临时静态资源目录");

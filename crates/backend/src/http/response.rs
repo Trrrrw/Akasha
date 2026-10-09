@@ -13,7 +13,16 @@ pub fn utc_timestamp(value: DateTime<FixedOffset>) -> String {
 pub fn public_asset_url(asset_base_url: &str, value: Option<String>) -> Option<String> {
     value.map(|value| {
         if value.starts_with('/') && !value.starts_with("//") {
-            format!("{asset_base_url}{value}")
+            // 内置游戏资源同时提供 WebP，避免浏览器解码 AVIF 失败后再请求
+            let path = if value.starts_with("/assets/games/") {
+                value
+                    .strip_suffix(".avif")
+                    .map(|path| format!("{path}.webp"))
+                    .unwrap_or(value)
+            } else {
+                value
+            };
+            format!("{asset_base_url}{path}")
         } else {
             value
         }
@@ -24,7 +33,9 @@ pub fn public_asset_url(asset_base_url: &str, value: Option<String>) -> Option<S
 pub fn public_asset_json(asset_base_url: &str, value: serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::String(path) if path.starts_with('/') && !path.starts_with("//") => {
-            serde_json::Value::String(format!("{asset_base_url}{path}"))
+            serde_json::Value::String(
+                public_asset_url(asset_base_url, Some(path)).expect("资源路径应存在"),
+            )
         }
         serde_json::Value::Array(values) => serde_json::Value::Array(
             values
@@ -87,7 +98,54 @@ impl ErrorResponse {
 mod tests {
     use chrono::DateTime;
 
-    use super::utc_timestamp;
+    use super::{public_asset_json, public_asset_url, utc_timestamp};
+
+    #[test]
+    fn defaults_bundled_images_to_webp_without_rewriting_other_assets() {
+        for (path, expected) in [
+            (
+                "/assets/games/ys/cover.avif",
+                "https://assets.example/assets/games/ys/cover.webp",
+            ),
+            (
+                "/assets/games/sr/icon-64.avif",
+                "https://assets.example/assets/games/sr/icon-64.webp",
+            ),
+            (
+                "/assets/games/ys/imaginarium-theater.png",
+                "https://assets.example/assets/games/ys/imaginarium-theater.png",
+            ),
+            (
+                "/assets/game-data/example.avif",
+                "https://assets.example/assets/game-data/example.avif",
+            ),
+            (
+                "https://external.example/cover.avif",
+                "https://external.example/cover.avif",
+            ),
+            (
+                "//external.example/cover.avif",
+                "//external.example/cover.avif",
+            ),
+        ] {
+            assert_eq!(
+                public_asset_url("https://assets.example", Some(path.to_owned())).as_deref(),
+                Some(expected)
+            );
+        }
+        assert_eq!(public_asset_url("https://assets.example", None), None);
+        let value = public_asset_json(
+            "https://assets.example",
+            serde_json::json!({
+                "images": ["/assets/games/zzz/icon.avif", null]
+            }),
+        );
+        assert_eq!(
+            value["images"][0],
+            "https://assets.example/assets/games/zzz/icon.webp"
+        );
+        assert!(value["images"][1].is_null());
+    }
 
     #[test]
     fn serializes_timestamp_as_utc_to_second_precision() {

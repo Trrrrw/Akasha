@@ -65,7 +65,11 @@ impl GameResponse {
 fn game_icon_variants(icon: Option<&str>, asset_base_url: &str) -> Vec<GameIconVariantResponse> {
     let Some(prefix) = icon
         .filter(|value| value.starts_with("/assets/games/"))
-        .and_then(|value| value.strip_suffix("/icon.avif"))
+        .and_then(|value| {
+            value
+                .strip_suffix("/icon.avif")
+                .or_else(|| value.strip_suffix("/icon.webp"))
+        })
     else {
         return Vec::new();
     };
@@ -74,7 +78,7 @@ fn game_icon_variants(icon: Option<&str>, asset_base_url: &str) -> Vec<GameIconV
         .into_iter()
         .map(|size| GameIconVariantResponse {
             size,
-            url: format!("{asset_base_url}{prefix}/icon-{size}.avif"),
+            url: format!("{asset_base_url}{prefix}/icon-{size}.webp"),
         })
         .collect()
 }
@@ -98,15 +102,15 @@ mod tests {
             [
                 (
                     64,
-                    "https://assets.example.com/assets/games/ys/icon-64.avif"
+                    "https://assets.example.com/assets/games/ys/icon-64.webp"
                 ),
                 (
                     128,
-                    "https://assets.example.com/assets/games/ys/icon-128.avif"
+                    "https://assets.example.com/assets/games/ys/icon-128.webp"
                 ),
                 (
                     256,
-                    "https://assets.example.com/assets/games/ys/icon-256.avif"
+                    "https://assets.example.com/assets/games/ys/icon-256.webp"
                 ),
             ]
         );
