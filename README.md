@@ -9,6 +9,8 @@ Akasha 是一个使用 Rust 和 SQLite 实现的游戏信息聚合后端。公�
 - `crates/db`：SeaORM Entity、SQLite repository 和 schema 同步
 - `crates/mys`：米游社视频临时签名客户端
 
+`assets/games/` 中的内置游戏封面和图标同时提供 WebP 与 AVIF。公开 API 默认返回 WebP，原有 AVIF 地址继续可用；新增或更新这些图片时需同步维护两种格式及图标尺寸变体。动态游戏数据资源按其实际格式返回，不替换扩展名
+
 ## Agent Skills
 
 复制下面的提示词并发送给你的 Agent：
