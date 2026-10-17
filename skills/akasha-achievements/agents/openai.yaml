@@ -1,0 +1,6 @@
+interface:
+  display_name: "Akasha 成就管理"
+  short_description: "根据截图、目录与 UIAF 文件安全管理本地游戏成就进度"
+  default_prompt: "使用 $akasha-achievements 匹配我的成就截图，并更新本地进度文件"
+policy:
+  allow_implicit_invocation: true

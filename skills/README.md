@@ -9,6 +9,11 @@
 - 来源：https://github.com/Trrrrw/Akasha/tree/main/skills/akasha
 - 用途：通过 Akasha 公开 API 查询游戏资料、角色、新闻、活动日历、生日和媒体信息
 
+### akasha-achievements
+
+- 来源：https://github.com/Trrrrw/Akasha/tree/main/skills/akasha-achievements
+- 用途：根据截图和 UIAF 文件管理本地成就进度，支持多阶段成就；使用 Yae 读取游戏前必须取得用户许可
+
 ## 安装要求
 
 1. 识别你当前使用的 Agent、CLI 或运行时及其 Skills 机制
