@@ -31,7 +31,7 @@ cargo test --workspace --all-features --locked
 
 ## Worker 验证
 
-仅在用户明确要求修改或运行私有 worker 时进入 `worker/`，并先阅读该仓库自己的 `AGENTS.md`。修改后按其 package scripts 运行依赖安装、静态检查、测试和构建。
+仅在用户明确要求修改或运行私有采集器时，根据本地工作区映射进入其独立仓库，并先阅读该仓库自己的 `AGENTS.md`。修改后按其 package scripts 运行依赖安装、静态检查、测试和构建。
 
 运行 worker 前确认 backend 健康、所需环境变量已加载，并使用正确的 `DATA_WRITE_TOKEN`。上游请求统一经过共享的限速、超时和有限重试策略。
 

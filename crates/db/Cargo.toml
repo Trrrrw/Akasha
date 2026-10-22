@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 akasha-application = { workspace = true }
 chrono = { workspace = true }
-sea-orm = { version = "2.0.2", default-features = false, features = [
+sea-orm = { version = "2.0.4", default-features = false, features = [
     "entity-registry",
     "macros",
     "runtime-tokio",

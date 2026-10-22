@@ -18,27 +18,27 @@ path = "src/main.rs"
 akasha-application = { workspace = true }
 akasha-db = { workspace = true }
 akasha-mys = { workspace = true }
-anyhow = "1"
-axum = "0.8"
-axum-extra = { version = "0.12", default-features = false, features = ["query"] }
+anyhow = "1.0.104"
+axum = "0.8.9"
+axum-extra = { version = "0.12.6", default-features = false, features = ["query"] }
 chrono = { workspace = true }
-hmac = "0.13"
-html2text = { version = "0.17", features = ["css"] }
-quick-xml = { version = "0.42", features = ["serialize"] }
+hmac = "0.13.0"
+html2text = { version = "0.17.4", features = ["css"] }
+quick-xml = { version = "0.42.0", features = ["serialize"] }
 reqwest = { workspace = true, features = ["form"] }
-rss = "2"
+rss = "2.1.2"
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.11"
+sha2 = "0.11.1"
 tokio = { workspace = true, features = ["full"] }
-toml = "1.1"
-tower = "0.5"
-tower-http = { version = "0.7", features = ["cors", "fs", "request-id", "set-header", "trace"] }
+toml = "1.1.8"
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["cors", "fs", "request-id", "set-header", "trace"] }
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
-utoipa = { version = "5.4.0", features = ["axum_extras"] }
-utoipa-axum = "0.2.0"
-utoipa-scalar = { version = "0.3.0", features = ["axum"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "time"] }
+utoipa = { version = "6.0.0", features = ["axum_extras"] }
+utoipa-axum = "0.3.0"
+utoipa-scalar = { version = "0.4.0", features = ["axum"] }
 
 [dev-dependencies]
 uuid = { workspace = true }
