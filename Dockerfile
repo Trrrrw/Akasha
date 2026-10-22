@@ -21,7 +21,7 @@ COPY crates ./crates
 COPY assets ./assets
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    cargo build --release && \
+    cargo build --release --locked && \
     mkdir -p /app/bin && \
     cp /app/target/release/akasha-backend /app/bin/akasha-backend
 
