@@ -79,8 +79,6 @@ openssl rand -base64 32
 
 ## 本地开发
 
-开发、PR、CI、版本与发行约定见 [开发与发行流程](CONTRIBUTING.md)
-
 启动后端：
 
 ```bash
@@ -105,6 +103,14 @@ API 中表示确定时间点的 JSON 字段统一使用精确到秒的 UTC RFC 3
 
 ## Docker 运行
 
+在构建机从源码生成镜像：
+
+```bash
+docker build --target akasha -t akasha-backend:local .
+```
+
+跨机器部署时可通过 `docker image save` 和 `docker image load` 传输镜像，在运行机器上使用下面的 Compose 配置
+
 先创建后端使用的实际配置文件，并填写部署参数：
 
 ```bash
@@ -115,26 +121,16 @@ SQLite 文件会保存到宿主机的 `data` 目录，后端配置通过只读�
 
 该部署方式假定同一个 SQLite 文件只由一个后端实例使用，worker 通过后端 API 写入数据。备份时应先停止后端，再备份整个 `data` 目录
 
-拉取公开镜像并启动后端：
+加载构建好的 `akasha-backend:local` 镜像后启动后端：
 
 ```bash
-docker compose up -d
+docker compose up -d --pull never
 ```
-
-Compose 默认使用 GitHub Container Registry。国内网络需要改用阿里云镜像时，交换 `akasha-backend.image` 相邻两行的注释即可
 
 查看日志：
 
 ```bash
 docker logs -f akasha-backend
-```
-
-## 后端发布镜像
-
-需要从源码自行构建后端镜像时：
-
-```bash
-docker build --target akasha -t akasha-backend:latest .
 ```
 
 ## 成就目录

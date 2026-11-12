@@ -1,8 +1,8 @@
 services:
   akasha-backend:
     container_name: akasha-backend
-    image: ghcr.io/trrrrw/akasha-backend:latest
-    # image: crpi-73ao84573omk8qlo.cn-hangzhou.personal.cr.aliyuncs.com/akasha/akasha-backend:latest
+    image: akasha-backend:local
+    pull_policy: never
     restart: unless-stopped
     ports:
       - "7040:7040"
