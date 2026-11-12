@@ -1,32 +1,11 @@
 use std::time::Duration;
 
 use sea_orm::{
-    ActiveValue::Set,
-    ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
-    QueryFilter,
+    ConnectOptions, ConnectionTrait, Database, DatabaseConnection,
     sea_query::{Alias, Index, IndexOrder},
 };
 
-use crate::{entities::news, error::DbError, seed};
-
-const LEGACY_NEWS_COVERS: &[(&str, &str)] = &[
-    (
-        "ys",
-        "https://ys.mihoyo.com/main/_nuxt/img/holder.37207c1.jpg",
-    ),
-    (
-        "sr",
-        "https://webstatic.mihoyo.com/upload/op-public/2023/01/24/b74ae5e3a8e8b021b67ea26e27a215f2_184072581688764639.png",
-    ),
-    (
-        "zzz",
-        "https://webstatic.mihoyo.com/upload/op-public/2022/09/17/a425b5ccb44c72e342cf3a6e488dc445_771169193410538499.jpg",
-    ),
-    (
-        "planet",
-        "https://fastcdn.mihoyo.com/content-v2/hyg/159836/d693785a0c7bbc09bc5a343465264403_6948692753721779299.png",
-    ),
-];
+use crate::{error::DbError, seed};
 
 /// 数据库连接池等待可用连接的最长时间
 const DATABASE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(8);
@@ -57,7 +36,6 @@ impl Db {
     pub async fn init(options: DbOptions) -> Result<Self, DbError> {
         let db = Self::connect(options).await?;
         db.sync_schema().await?;
-        db.normalize_legacy_news_covers().await?;
         db.sync_indexes().await?;
         db.seed_required_data().await?;
         Ok(db)
@@ -114,47 +92,8 @@ impl Db {
             .map_err(DbError::SyncSchema)
     }
 
-    /// 将旧 worker 写入的占位封面归一化为 NULL
-    pub(crate) async fn normalize_legacy_news_covers(&self) -> Result<(), DbError> {
-        news::Entity::update_many()
-            .set(news::ActiveModel {
-                cover: Set(None),
-                ..Default::default()
-            })
-            .filter(news::Column::Cover.eq(""))
-            .exec(&self.conn)
-            .await
-            .map_err(DbError::NormalizeLegacyData)?;
-
-        for (game_id, cover) in LEGACY_NEWS_COVERS {
-            news::Entity::update_many()
-                .set(news::ActiveModel {
-                    cover: Set(None),
-                    ..Default::default()
-                })
-                .filter(news::Column::GameId.eq(*game_id))
-                .filter(news::Column::SourceId.eq("web_cn"))
-                .filter(news::Column::Cover.eq(*cover))
-                .exec(&self.conn)
-                .await
-                .map_err(DbError::NormalizeLegacyData)?;
-        }
-
-        Ok(())
-    }
-
     /// 同步高频查询所需的二级索引
     async fn sync_indexes(&self) -> Result<(), DbError> {
-        self.conn
-            .execute(
-                &Index::drop()
-                    .if_exists()
-                    .name("idx_news_game_source_publish_time")
-                    .table("news")
-                    .to_owned(),
-            )
-            .await
-            .map_err(DbError::SyncIndexes)?;
         let indexes: &[(&str, &str, &[&str])] = &[
             (
                 "idx_news_game_source_publish_id_title",

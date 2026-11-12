@@ -159,20 +159,8 @@ macro_rules! game_data_repository {
                                 .filter($entity::Column::Collection.eq(&command.collection))
                                 .all(txn)
                                 .await?;
-                            let existing_by_id = existing
-                                .iter()
-                                .map(|row| (row.id.as_str(), row))
-                                .collect::<HashMap<_, _>>();
-                            let created = incoming
-                                .iter()
-                                .filter(|row| !existing_by_id.contains_key(row.id.as_str()))
-                                .count() as u64;
-                            let updated = incoming.len() as u64 - created;
-                            let changed = existing.len() != incoming.len()
-                                || incoming.iter().any(|row| {
-                                    existing_by_id.get(row.id.as_str()).copied() != Some(row)
-                                });
-
+                            let total = incoming.len() as u64;
+                            let (incoming, created, updated) = changed_entries(incoming, &existing);
                             write_entries(txn, &incoming).await?;
 
                             let stale_ids = existing
@@ -198,7 +186,7 @@ macro_rules! game_data_repository {
                                     .await?;
                             }
 
-                            let total = incoming.len() as u64;
+                            let changed = created > 0 || updated > 0 || deleted > 0;
                             audit::insert(
                                 txn,
                                 &command.audit,
@@ -246,30 +234,17 @@ macro_rules! game_data_repository {
                                 )));
                             }
 
-                            let mut existing_ids = HashSet::new();
+                            let mut existing = Vec::new();
                             for chunk in incoming.chunks(400) {
-                                existing_ids.extend(
+                                existing.extend(
                                     $entity::Entity::find()
-                                        .select_only()
-                                        .column($entity::Column::Id)
-                                        .filter(
-                                            $entity::Column::Collection.eq(&command.collection),
-                                        )
-                                        .filter(
-                                            $entity::Column::Id
-                                                .is_in(chunk.iter().map(|row| row.id.clone())),
-                                        )
-                                        .into_tuple::<String>()
+                                        .filter($entity::Column::Collection.eq(&command.collection))
+                                        .filter($entity::Column::Id.is_in(chunk.iter().map(|row| row.id.clone())))
                                         .all(txn)
                                         .await?,
                                 );
                             }
-                            let created = incoming_ids
-                                .iter()
-                                .filter(|id| !existing_ids.contains(*id))
-                                .count() as u64;
-                            let updated = incoming.len() as u64 - created;
-
+                            let (incoming, created, updated) = changed_entries(incoming, &existing);
                             write_entries(txn, &incoming).await?;
 
                             let removed_ids = removed_ids.into_iter().collect::<Vec<_>>();
@@ -326,44 +301,71 @@ macro_rules! game_data_repository {
                     .map_err(DbError::from)
             }
 
-            fn incoming(collection: &str, items: Vec<GameDataEntry>) -> Result<(Vec<$entity::Model>, HashSet<String>), DbErr> {
-                            let mut incoming_ids = HashSet::with_capacity(items.len());
-                            let incoming = items
-                                .into_iter()
-                                .map(|item| {
-                                    if !incoming_ids.insert(item.id.clone()) {
-                                        return Err(DbErr::Custom(format!(
-                                            "duplicated {} game data id in {}: {}",
-                                            $game_id, collection, item.id
-                                        )));
-                                    }
-                                    Ok($entity::Model {
-                                        collection: collection.to_owned(),
-                                        id: item.id,
-                                        name: item.name,
-                                        icon: item.icon,
-                                        summary: item.summary,
-                                        detail: item.detail,
-                                        assets: item.assets,
-                                        source_hash: item.source_hash,
-                                    })
-                                })
-                                .collect::<Result<Vec<_>, DbErr>>()?;
+            fn changed_entries(
+                mut incoming: Vec<$entity::Model>,
+                existing: &[$entity::Model],
+            ) -> (Vec<$entity::Model>, u64, u64) {
+                let existing_by_id = existing
+                    .iter()
+                    .map(|row| (row.id.as_str(), row))
+                    .collect::<HashMap<_, _>>();
+                let mut created = 0;
+                let mut updated = 0;
+                incoming.retain(|row| match existing_by_id.get(row.id.as_str()) {
+                    None => {
+                        created += 1;
+                        true
+                    }
+                    Some(existing) if *existing != row => {
+                        updated += 1;
+                        true
+                    }
+                    Some(_) => false,
+                });
+                (incoming, created, updated)
+            }
+
+            fn incoming(
+                collection: &str,
+                items: Vec<GameDataEntry>,
+            ) -> Result<(Vec<$entity::Model>, HashSet<String>), DbErr> {
+                let mut incoming_ids = HashSet::with_capacity(items.len());
+                let incoming = items
+                    .into_iter()
+                    .map(|item| {
+                        if !incoming_ids.insert(item.id.clone()) {
+                            return Err(DbErr::Custom(format!(
+                                "duplicated {} game data id in {}: {}",
+                                $game_id, collection, item.id
+                            )));
+                        }
+                        Ok($entity::Model {
+                            collection: collection.to_owned(),
+                            id: item.id,
+                            name: item.name,
+                            icon: item.icon,
+                            summary: item.summary,
+                            detail: item.detail,
+                            assets: item.assets,
+                            source_hash: item.source_hash,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, DbErr>>()?;
                 Ok((incoming, incoming_ids))
             }
 
-            async fn write_entries(txn: &sea_orm::DatabaseTransaction, incoming: &[$entity::Model]) -> Result<(), DbErr> {
-                            for chunk in incoming.chunks(50) {
-                                $entity::Entity::insert_many(
-                                    chunk
-                                        .iter()
-                                        .cloned()
-                                        .map(IntoActiveModel::into_active_model),
-                                )
-                                .on_conflict(upsert())
-                                .exec(txn)
-                                .await?;
-                            }
+            async fn write_entries(
+                txn: &sea_orm::DatabaseTransaction,
+                incoming: &[$entity::Model],
+            ) -> Result<(), DbErr> {
+                for chunk in incoming.chunks(50) {
+                    $entity::Entity::insert_many(
+                        chunk.iter().cloned().map(IntoActiveModel::into_active_model),
+                    )
+                    .on_conflict(upsert())
+                    .exec(txn)
+                    .await?;
+                }
                 Ok(())
             }
 

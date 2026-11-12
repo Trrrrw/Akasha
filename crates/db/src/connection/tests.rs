@@ -19,7 +19,7 @@ use serde_json::json;
 
 use super::*;
 use crate::{
-    entities::{audit_logs, games, news_sources},
+    entities::{audit_logs, games, news, news_sources},
     repositories,
 };
 
@@ -101,6 +101,45 @@ fn calendar_time(month: u32, day: u32, hour: u32) -> chrono::DateTime<FixedOffse
 }
 
 #[tokio::test]
+async fn restarting_preserves_stored_news() {
+    let directory = std::env::temp_dir().join(format!("akasha-db-{}", uuid::Uuid::new_v4()));
+    let options = DbOptions {
+        sqlite_path: directory.join("test.sqlite").to_string_lossy().into_owned(),
+    };
+    let db = Db::init(options.clone())
+        .await
+        .expect("initialize database");
+    let cover = "https://ys.mihoyo.com/main/_nuxt/img/holder.37207c1.jpg";
+    news::Entity::insert(news::ActiveModel {
+        game_id: sea_orm::Set("ys".into()),
+        source_id: sea_orm::Set("web_cn".into()),
+        id: sea_orm::Set("preserved".into()),
+        title: sea_orm::Set("已保存新闻".into()),
+        publish_time: sea_orm::Set(Utc::now().fixed_offset()),
+        source_url: sea_orm::Set("https://example.com/news".into()),
+        cover: sea_orm::Set(Some(cover.into())),
+        news_type: sea_orm::Set(news::NewsType::Article),
+        raw_data: sea_orm::Set(json!({})),
+        ..Default::default()
+    })
+    .exec(db.conn())
+    .await
+    .expect("insert news");
+    db.conn.close().await.expect("close database");
+
+    let db = Db::init(options).await.expect("reopen database");
+    let item =
+        news::Entity::find_by_id(("ys".to_owned(), "web_cn".to_owned(), "preserved".to_owned()))
+            .one(db.conn())
+            .await
+            .expect("query news")
+            .expect("preserved news");
+    db.conn.close().await.expect("close database");
+    std::fs::remove_dir_all(directory).expect("remove test database");
+    assert_eq!(item.cover.as_deref(), Some(cover));
+}
+
+#[tokio::test]
 async fn initializes_sqlite_schema_and_seed_data() {
     let db = test_db().await;
 
@@ -143,6 +182,77 @@ async fn initializes_sqlite_schema_and_seed_data() {
         .expect("Genshin overseas Traditional Chinese source should be seeded");
     assert_eq!(source.name, "国际服官网（繁体中文）");
     assert_eq!(source.index, 3);
+}
+
+#[tokio::test]
+async fn repeated_game_data_writes_report_only_real_changes() {
+    let db = test_db().await;
+    for game_id in ["ys", "sr", "zzz"] {
+        let sync = || SyncGameDataCollectionCommand {
+            game_id: game_id.into(),
+            collection: "character".into(),
+            items: vec![game_data_entry("character", "1", "角色")],
+            audit: audit_context(),
+        };
+        let result = repositories::game_data::sync(&db, sync())
+            .await
+            .expect("first sync");
+        assert_eq!(
+            (
+                result.created,
+                result.updated,
+                result.deleted,
+                result.changed
+            ),
+            (1, 0, 0, true)
+        );
+        let result = repositories::game_data::sync(&db, sync())
+            .await
+            .expect("repeat sync");
+        assert_eq!(
+            (
+                result.created,
+                result.updated,
+                result.deleted,
+                result.changed
+            ),
+            (0, 0, 0, false)
+        );
+
+        for (name, updated, changed) in [
+            ("角色", 0, false),
+            ("新角色", 1, true),
+            ("新角色", 0, false),
+        ] {
+            let result = repositories::game_data::update(
+                &db,
+                UpdateGameDataCollectionCommand {
+                    game_id: game_id.into(),
+                    collection: "character".into(),
+                    items: vec![game_data_entry("character", "1", name)],
+                    removed_ids: vec![],
+                    audit: audit_context(),
+                },
+            )
+            .await
+            .expect("incremental update");
+            assert_eq!(
+                (
+                    result.created,
+                    result.updated,
+                    result.deleted,
+                    result.changed,
+                    result.total
+                ),
+                (0, updated, 0, changed, 1)
+            );
+        }
+        let entry = repositories::game_data::find(&db, game_id, "character", "1")
+            .await
+            .expect("read updated entry")
+            .expect("entry");
+        assert_eq!(entry.name.as_deref(), Some("新角色"));
+    }
 }
 
 #[tokio::test]
