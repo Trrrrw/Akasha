@@ -1,0 +1,5 @@
+Akasha icon redraw reference
+https://steamcommunity.com/sharedfiles/filedetails/?id=2931779722
+Reference: Genshin Akasha Terminal, Steam Workshop community asset preview.
+Manually redrawn Bezier paths; exported with VectorCraft.
+Canvas: 1024 x 1024, transparent background.
