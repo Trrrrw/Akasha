@@ -133,6 +133,16 @@ docker compose up -d --pull never
 docker logs -f akasha-backend
 ```
 
+## 新闻与角色目录
+
+新闻统一入口为 `GET /api/v1/news`，可通过重复的 `game`、`source` 参数筛选，也可跨游戏、跨来源分页。每条记录携带 `game_id`、`source` 和 `id`；详情为 `/api/v1/news/{game_id}/{source}/{news_id}`，RSS 为 `/api/v1/news/rss`
+
+新闻来源和标签目录分别为 `/api/v1/news/sources?game={game_id}` 与 `/api/v1/news/tags?game={game_id}&source={source}`。受保护写入入口为 `/api/v1/admin/news`，原始内容查询为 `/api/v1/admin/news/raw?game={game_id}&source={source}`；写入体包含 `game_id` 与 `source_id`
+
+游戏本体资料保留各游戏独立模型。角色目录位于 `/api/v1/games/ys/characters`、`/api/v1/games/sr/characters` 和 `/api/v1/games/zzz/characters`，当前提供 ID、名称、头像、生日及分页，供角色筛选和生日展示使用。各游戏未来字段在原有角色资源中扩展。通用 `/data/{collection}` 公开读取及未使用的资源上传入口已移除
+
+游戏版本时间线继续通过 `/api/v1/games/{game_id}/versions` 读取。数据库保存已确认资料，自动同步补充新内容；历史缺口和错误可按可靠来源显式补录或修正，不依赖对所有历史公告重新解析
+
 ## 成就目录
 
 三款游戏使用 `ys`、`sr`、`zzz`，公开接口包括：

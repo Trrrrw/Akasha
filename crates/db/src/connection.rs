@@ -96,6 +96,11 @@ impl Db {
     async fn sync_indexes(&self) -> Result<(), DbError> {
         let indexes: &[(&str, &str, &[&str])] = &[
             (
+                "idx_news_publish_id_game_source",
+                "news",
+                &["-publish_time", "-id", "game_id", "source_id"],
+            ),
+            (
                 "idx_news_game_source_publish_id_title",
                 "news",
                 &["game_id", "source_id", "-publish_time", "-id", "title"],

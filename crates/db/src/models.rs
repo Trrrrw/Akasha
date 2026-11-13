@@ -1,4 +1,4 @@
-use akasha_application::search::{TextQuery, TextQueryGroup};
+use akasha_application::search::TextQuery;
 use sea_orm::{
     Condition, ExprTrait,
     entity::prelude::*,
@@ -27,19 +27,6 @@ pub(crate) fn text_query_condition(query: &TextQuery, fields: &[Expr]) -> Condit
     }
 
     conditions
-}
-
-/// 为一个字面量关键词构造跨字段包含条件
-pub(crate) fn literal_contains_condition(value: String, fields: &[Expr]) -> Condition {
-    text_query_condition(
-        &TextQuery {
-            groups: vec![TextQueryGroup {
-                excluded: false,
-                alternatives: vec![value],
-            }],
-        },
-        fields,
-    )
 }
 
 /// 将用户文本转换为不会暴露 LIKE 通配符语义的包含模式

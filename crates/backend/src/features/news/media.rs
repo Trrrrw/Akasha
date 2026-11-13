@@ -12,18 +12,16 @@ use crate::{http::error::AppError, state::AppState};
 use super::{
     dto::NewsVideoResponse,
     nfo,
-    query::{
-        NewsDetailPath, NewsEpisodeNfoQuery, NewsSeriesEpisodePath, NewsSeriesPath, NewsSourceQuery,
-    },
+    query::{NewsDetailPath, NewsEpisodeNfoQuery, NewsSeriesEpisodePath, NewsSeriesPath},
 };
 
 #[utoipa::path(
     get,
-    path = "/games/{game_id}/news/{news_id}/media/nfo",
+    path = "/news/{game_id}/{source}/{news_id}/media/nfo",
     tag = "News",
     summary = "下载独立视频 NFO",
     description = "将一条视频新闻作为独立电影导出为 Kodi 和 Jellyfin Movie NFO",
-    params(NewsDetailPath, NewsSourceQuery),
+    params(NewsDetailPath),
     responses(
         (status = 200, description = "视频新闻 NFO XML", content_type = "application/xml"),
         (status = 404, body = crate::http::response::ErrorResponse),
@@ -32,10 +30,12 @@ use super::{
 )]
 pub(super) async fn movie_nfo(
     State(state): State<AppState>,
-    Path(NewsDetailPath { game_id, news_id }): Path<NewsDetailPath>,
-    Query(query): Query<NewsSourceQuery>,
+    Path(NewsDetailPath {
+        game_id,
+        source,
+        news_id,
+    }): Path<NewsDetailPath>,
 ) -> Result<Response, AppError> {
-    let source = query.into_source()?;
     let result = find_video_news(&state, &game_id, &source, &news_id).await?;
 
     // NFO 只描述媒体元数据，不解析会过期的米游社播放签名
@@ -53,11 +53,11 @@ pub(super) async fn movie_nfo(
 
 #[utoipa::path(
     get,
-    path = "/games/{game_id}/news/series/{tag_name}/media/nfo",
+    path = "/news/{game_id}/{source}/series/{tag_name}/media/nfo",
     tag = "News",
     summary = "下载标签剧集 NFO",
     description = "将至少包含一条视频的新闻标签导出为 tvshow.nfo，供前端交给媒体下载流程",
-    params(NewsSeriesPath, NewsSourceQuery),
+    params(NewsSeriesPath),
     responses(
         (status = 200, description = "标签剧集 TV Show NFO", content_type = "application/xml"),
         (status = 404, body = crate::http::response::ErrorResponse),
@@ -66,10 +66,12 @@ pub(super) async fn movie_nfo(
 )]
 pub(super) async fn series_nfo(
     State(state): State<AppState>,
-    Path(NewsSeriesPath { game_id, tag_name }): Path<NewsSeriesPath>,
-    Query(query): Query<NewsSourceQuery>,
+    Path(NewsSeriesPath {
+        game_id,
+        source,
+        tag_name,
+    }): Path<NewsSeriesPath>,
 ) -> Result<Response, AppError> {
-    let source = query.into_source()?;
     let series = state
         .application()
         .find_news_series(&game_id, &source, &tag_name)
@@ -87,7 +89,7 @@ pub(super) async fn series_nfo(
 
 #[utoipa::path(
     get,
-    path = "/games/{game_id}/news/series/{tag_name}/episodes/{news_id}/media/nfo",
+    path = "/news/{game_id}/{source}/series/{tag_name}/episodes/{news_id}/media/nfo",
     tag = "News",
     summary = "下载视频单集 NFO",
     description = "将标签内的视频导出为 episodedetails NFO，季集编号应与媒体文件名一致",
@@ -103,16 +105,13 @@ pub(super) async fn episode_nfo(
     State(state): State<AppState>,
     Path(NewsSeriesEpisodePath {
         game_id,
+        source,
         tag_name,
         news_id,
     }): Path<NewsSeriesEpisodePath>,
     Query(query): Query<NewsEpisodeNfoQuery>,
 ) -> Result<Response, AppError> {
-    let NewsEpisodeNfoQuery {
-        source,
-        season,
-        episode,
-    } = query.validate()?;
+    let NewsEpisodeNfoQuery { season, episode } = query.validate()?;
     let result = find_video_news(&state, &game_id, &source, &news_id).await?;
     if !result.item.tags.iter().any(|tag| tag == &tag_name) {
         return Err(AppError::NotFound(format!(
@@ -137,11 +136,11 @@ pub(super) async fn episode_nfo(
 
 #[utoipa::path(
     get,
-    path = "/games/{game_id}/news/{news_id}/media/video",
+    path = "/news/{game_id}/{source}/{news_id}/media/video",
     tag = "News",
     summary = "获取新闻视频播放地址",
     description = "返回当前有效的视频播放地址，米游社地址会按新闻单独刷新签名；请求按客户端 IP 限流",
-    params(NewsDetailPath, NewsSourceQuery),
+    params(NewsDetailPath),
     responses(
         (status = 200, body = super::dto::NewsVideoResponse),
         (
@@ -157,10 +156,12 @@ pub(super) async fn video(
     State(state): State<AppState>,
     ConnectInfo(client_address): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    Path(NewsDetailPath { game_id, news_id }): Path<NewsDetailPath>,
-    Query(query): Query<NewsSourceQuery>,
+    Path(NewsDetailPath {
+        game_id,
+        source,
+        news_id,
+    }): Path<NewsDetailPath>,
 ) -> Result<Json<NewsVideoResponse>, AppError> {
-    let source = query.into_source()?;
     // 在读取数据库或访问米游社前按安全解析的客户端 IP 消耗视频接口令牌
     let client_ip = state
         .public_rate_limiters()

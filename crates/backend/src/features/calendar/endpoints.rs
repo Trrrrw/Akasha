@@ -72,7 +72,7 @@ pub(super) async fn list_birthdays(
 fn birthday(
     character_id: String,
     character_name: String,
-    icon: String,
+    icon: Option<String>,
     month: Option<i16>,
     day: Option<i16>,
     asset_base_url: &str,
@@ -81,8 +81,7 @@ fn birthday(
         character_id,
         character_name,
         character_icon: icon
-            .starts_with("/assets/game-data/")
-            .then_some(icon)
+            .filter(|value| value.starts_with("/assets/game-data/"))
             .and_then(|value| public_asset_url(asset_base_url, Some(value))),
         birthday_month: month?,
         birthday_day: day?,

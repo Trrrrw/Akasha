@@ -52,7 +52,6 @@ impl ApplicationRepository for Db {
         fn sync_calendar_events(&self, command: SyncCalendarEventsCommand) -> RepositoryResult<SyncCalendarEventsResult> => repositories::calendar::sync;
         fn list_game_data_collections(&self, game_id: &str) -> RepositoryResult<Vec<GameDataCollection>> => repositories::game_data::list_collections;
         fn list_game_data(&self, filter: GameDataListFilter) -> RepositoryResult<(u64, Vec<GameDataEntry>)> => repositories::game_data::list;
-        fn find_game_data(&self, game_id: &str, collection: &str, id: &str) -> RepositoryResult<Option<GameDataEntry>> => repositories::game_data::find;
         fn list_game_data_sync_state(&self, filter: ListGameDataSyncStateFilter) -> RepositoryResult<(u64, Vec<GameDataSyncState>)> => repositories::game_data::list_sync_state;
         fn list_achievement_groups(&self, game_id: &str) -> RepositoryResult<Vec<akasha_application::achievements::AchievementGroup>> => repositories::game_data::achievement_groups;
         fn sync_game_data_collection(&self, command: SyncGameDataCollectionCommand) -> RepositoryResult<SyncGameDataCollectionResult> => repositories::game_data::sync;

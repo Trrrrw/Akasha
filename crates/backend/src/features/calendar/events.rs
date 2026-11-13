@@ -244,9 +244,8 @@ fn materialize_birthdays(
                 cover: item.character_icon.clone(),
                 labels: Vec::new(),
                 url: format!(
-                    "{}/api/v1/games/{game_id}/data/character/{}",
-                    asset_base_url.trim_end_matches('/'),
-                    item.character_id
+                    "{}/api/v1/games/{game_id}/characters",
+                    asset_base_url.trim_end_matches('/')
                 ),
             });
         }

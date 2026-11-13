@@ -3,7 +3,7 @@ use akasha_application::{
     calendar::{CalendarEventInput, ListCalendarEventsFilter, SyncCalendarEventsCommand},
     characters::YsCharacterListFilter,
     game_data::{
-        GameDataCollectionFilter, GameDataEntry, GameDataListFilter, ListGameDataSyncStateFilter,
+        GameDataEntry, GameDataListFilter, ListGameDataSyncStateFilter,
         SyncGameDataCollectionCommand, UpdateGameDataCollectionCommand,
     },
     game_versions::{GameVersionInput, SyncGameVersionsCommand},
@@ -42,36 +42,8 @@ fn ys_character(id: &str, name: &str) -> GameDataEntry {
         name: Some(name.to_owned()),
         icon: None,
         summary: json!({
-            "id": id,
-            "name": name,
-            "name_en": name,
-            "name_ja": name,
-            "name_ko": name,
-            "description": "",
-            "description_en": "",
-            "icon_url": "",
-            "release_date": null,
-            "birthday_month": null,
-            "birthday_day": null,
-            "rarity": null,
-            "weapon_type": null,
-            "element": null,
-            "constellation": null,
-            "region": null,
-            "affiliation": null,
-            "title": null,
-            "cv_zh": null,
-            "cv_en": null,
-            "cv_ja": null,
-            "cv_ko": null,
-            "base_hp": null,
-            "base_atk": null,
-            "base_def": null,
-            "crit_rate": null,
-            "crit_dmg": null,
-            "elemental_mastery": null,
-            "stamina_recovery": null,
-            "special": false
+            "id": id, "name": name, "icon_url": null,
+            "birthday_month": null, "birthday_day": null,
         }),
         detail: Some(json!({})),
         assets: json!({}),
@@ -247,11 +219,20 @@ async fn repeated_game_data_writes_report_only_real_changes() {
                 (0, updated, 0, changed, 1)
             );
         }
-        let entry = repositories::game_data::find(&db, game_id, "character", "1")
-            .await
-            .expect("read updated entry")
-            .expect("entry");
-        assert_eq!(entry.name.as_deref(), Some("新角色"));
+        let (_, entries) = repositories::game_data::list(
+            &db,
+            GameDataListFilter {
+                game_id: game_id.into(),
+                collection: "character".into(),
+                query: None,
+                achievement_filter: None,
+                limit: 20,
+                offset: 0,
+            },
+        )
+        .await
+        .expect("read updated directory");
+        assert_eq!(entries[0].name.as_deref(), Some("新角色"));
     }
 }
 
@@ -261,7 +242,7 @@ async fn synchronizes_game_data_collections_independently() {
 
     for (collection, id, name) in [
         ("character", "1001", "测试角色"),
-        ("weapon", "2001", "测试武器"),
+        ("achievement", "2001", "测试成就"),
     ] {
         repositories::game_data::sync(
             &db,
@@ -294,35 +275,31 @@ async fn synchronizes_game_data_collections_independently() {
     assert_eq!(collections.len(), 2);
     assert_eq!(collections.iter().map(|item| item.total).sum::<u64>(), 2);
 
-    let (weapon_total, weapons) = repositories::game_data::list(
+    let (achievement_total, achievements) = repositories::game_data::list(
         &db,
         GameDataListFilter {
             game_id: "ys".to_owned(),
-            collection: "weapon".to_owned(),
+            collection: "achievement".to_owned(),
             query: None,
-            collection_filter: None,
+            achievement_filter: None,
             limit: 20,
             offset: 0,
         },
     )
     .await
     .expect("unrelated collection should remain queryable");
-    assert_eq!(weapon_total, 1);
-    assert_eq!(weapons[0].id, "2001");
+    assert_eq!(achievement_total, 1);
+    assert_eq!(achievements[0].id, "2001");
 }
 
 #[tokio::test]
-async fn filters_characters_from_game_data_summary_fields() {
+async fn reads_character_directory_without_requiring_unused_summary_fields() {
     let db = test_db().await;
 
     let mut hu_tao = ys_character("1001", "胡桃");
-    hu_tao.summary["element"] = json!("Pyro");
-    hu_tao.summary["weapon_type"] = json!("WEAPON_POLE");
     hu_tao.summary["birthday_month"] = json!(7);
     hu_tao.summary["birthday_day"] = json!(15);
-    let mut nahida = ys_character("1002", "纳西妲");
-    nahida.summary["element"] = json!("Dendro");
-    nahida.summary["weapon_type"] = json!("WEAPON_CATALYST");
+    let nahida = ys_character("1002", "纳西妲");
 
     repositories::game_data::sync(
         &db,
@@ -336,34 +313,16 @@ async fn filters_characters_from_game_data_summary_fields() {
     .await
     .expect("character collection should synchronize");
 
-    let character_filter = YsCharacterListFilter {
-        query: None,
-        element: Some("Pyro".to_owned()),
-        weapon_type: Some("WEAPON_POLE".to_owned()),
-        rarity: None,
-        region: None,
-        affiliation: None,
-        voice_actor: None,
-        birthday_month: Some(7),
-        birthday_day: Some(15),
-        special: None,
-        birthday_only: true,
-        limit: 20,
-        offset: 0,
-    };
-    let (total, characters) = repositories::game_data::list(
+    let (total, characters) = repositories::characters::list_ys(
         &db,
-        GameDataListFilter {
-            game_id: "ys".to_owned(),
-            collection: "character".to_owned(),
-            query: None,
-            collection_filter: Some(GameDataCollectionFilter::YsCharacter(character_filter)),
+        YsCharacterListFilter {
+            birthday_only: true,
             limit: 20,
             offset: 0,
         },
     )
     .await
-    .expect("character projection should filter JSON summary fields");
+    .expect("birthday directory");
 
     assert_eq!(total, 1);
     assert_eq!(characters[0].id, "1001");
@@ -381,7 +340,7 @@ async fn incrementally_updates_game_data_and_lists_sync_state() {
         &db,
         SyncGameDataCollectionCommand {
             game_id: "ys".to_owned(),
-            collection: "weapon".to_owned(),
+            collection: "achievement".to_owned(),
             items: vec![
                 game_data_entry("weapon", "2001", "旧武器"),
                 game_data_entry("weapon", "2002", "待删除武器"),
@@ -398,7 +357,7 @@ async fn incrementally_updates_game_data_and_lists_sync_state() {
         &db,
         UpdateGameDataCollectionCommand {
             game_id: "ys".to_owned(),
-            collection: "weapon".to_owned(),
+            collection: "achievement".to_owned(),
             items: vec![changed],
             removed_ids: vec!["2002".to_owned()],
             audit: audit_context(),
@@ -414,7 +373,7 @@ async fn incrementally_updates_game_data_and_lists_sync_state() {
         &db,
         ListGameDataSyncStateFilter {
             game_id: "ys".to_owned(),
-            collection: "weapon".to_owned(),
+            collection: "achievement".to_owned(),
             after_id: None,
             limit: 100,
         },
@@ -642,8 +601,8 @@ async fn filters_news_for_pages_and_feeds() {
     }
 
     let filter = NewsFilter {
-        game_id: "ys".to_owned(),
-        source_id: "web_cn".to_owned(),
+        game_ids: vec!["ys".to_owned()],
+        source_ids: vec!["web_cn".to_owned()],
         title_query: Some(TextQuery::parse("update \"100%_Done\"").expect("valid query")),
         tags: Vec::new(),
         include_untagged: false,

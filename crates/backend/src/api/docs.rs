@@ -46,7 +46,7 @@ mod tests {
         assert!(document["paths"].get("/api/v1/games").is_some());
         assert!(
             document["paths"]
-                .get("/api/v1/games/{game_id}/news/{news_id}/media/video")
+                .get("/api/v1/news/{game_id}/{source}/{news_id}/media/video")
                 .is_some()
         );
         let paths = document["paths"].as_object().expect("应包含 paths");

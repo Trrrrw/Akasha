@@ -67,11 +67,13 @@ mod tests {
         let document = serde_json::to_value(api).expect("应序列化 OpenAPI 文档");
         let paths = document["paths"].as_object().expect("应包含 paths");
 
-        assert!(paths.contains_key("/api/v1/games/{game_id}/news/series/{tag_name}/media/nfo"));
+        assert!(paths.contains_key("/api/v1/news/{game_id}/{source}/series/{tag_name}/media/nfo"));
         assert!(paths.contains_key(
-            "/api/v1/games/{game_id}/news/series/{tag_name}/episodes/{news_id}/media/nfo"
+            "/api/v1/news/{game_id}/{source}/series/{tag_name}/episodes/{news_id}/media/nfo"
         ));
-        assert!(paths.contains_key("/api/v1/games/{game_id}/data/{collection}"));
+        assert!(paths.contains_key("/api/v1/games/ys/characters"));
+        assert!(paths.contains_key("/api/v1/games/sr/characters"));
+        assert!(paths.contains_key("/api/v1/games/zzz/characters"));
         assert!(paths.contains_key("/api/v1/games/{game_id}/achievements"));
         assert!(paths.contains_key("/api/v1/games/{game_id}/achievement-groups"));
         assert!(paths.contains_key("/api/v1/games/{game_id}/versions"));
@@ -80,7 +82,7 @@ mod tests {
             "Game"
         );
         assert!(!paths.keys().any(|path| path.ends_with("/data/character")));
-        assert!(!paths.contains_key("/api/v1/games/ys/characters"));
+
         assert!(paths.contains_key("/api/v1/games/{game_id}/calendar/capabilities"));
         assert!(paths.contains_key("/api/v1/games/{game_id}/calendar"));
         assert!(paths.contains_key("/api/v1/games/{game_id}/calendar.ics"));
@@ -162,10 +164,7 @@ mod tests {
                 .is_some()
         );
 
-        for path in [
-            "/api/v1/games/{game_id}/news",
-            "/api/v1/games/{game_id}/news/rss",
-        ] {
+        for path in ["/api/v1/news", "/api/v1/news/rss"] {
             let parameters = document["paths"][path]["get"]["parameters"]
                 .as_array()
                 .expect("新闻查询应记录公共筛选参数");
@@ -185,8 +184,8 @@ mod tests {
         }
 
         for path in [
-            "/api/v1/games/{game_id}/news/{news_id}/media/video",
-            "/api/v1/games/{game_id}/news/rss",
+            "/api/v1/news/{game_id}/{source}/{news_id}/media/video",
+            "/api/v1/news/rss",
         ] {
             let rate_limit_response = &document["paths"][path]["get"]["responses"]["429"];
             assert!(

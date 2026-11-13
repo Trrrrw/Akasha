@@ -8,7 +8,7 @@ use chrono::{DateTime, Days, FixedOffset, NaiveDate, TimeZone};
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-use crate::{http::error::AppError, http::path::GamePath};
+use crate::http::error::AppError;
 
 const DEFAULT_PAGE_LIMIT: u64 = 20;
 const MAX_PAGE_LIMIT: u64 = 100;
@@ -22,6 +22,8 @@ type PublishTimeRange = (Option<DateTime<FixedOffset>>, Option<DateTime<FixedOff
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Path)]
 pub(super) struct NewsDetailPath {
+    /// 新闻来源
+    pub source: String,
     /// 新闻 ID
     pub news_id: String,
     /// 游戏 ID
@@ -32,6 +34,8 @@ pub(super) struct NewsDetailPath {
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Path)]
 pub(super) struct NewsSeriesPath {
+    /// 新闻来源
+    pub source: String,
     /// 游戏 ID
     pub game_id: String,
     /// 作为剧集名称的新闻标签
@@ -42,6 +46,8 @@ pub(super) struct NewsSeriesPath {
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Path)]
 pub(super) struct NewsSeriesEpisodePath {
+    /// 新闻来源
+    pub source: String,
     /// 游戏 ID
     pub game_id: String,
     /// 作为剧集名称的新闻标签
@@ -55,7 +61,11 @@ pub(super) struct NewsSeriesEpisodePath {
 #[into_params(parameter_in = Query)]
 pub(super) struct NewsFilterQuery {
     /// 新闻来源，例如 web_cn 或 mys
-    pub source: String,
+    #[serde(default)]
+    pub source: Vec<String>,
+    /// 游戏 ID，可重复；省略时查询全部游戏
+    #[serde(default)]
+    pub game: Vec<String>,
     /// 标题查询，支持空格 AND、竖线 OR、减号排除、引号短语和反斜杠转义
     pub q: Option<String>,
     /// 任一匹配标签，可重复传入
@@ -94,27 +104,28 @@ pub(super) struct NewsRssQuery {
     pub limit: Option<u64>,
 }
 
-/// 需要指定新闻来源的公开接口查询参数
+/// 新闻来源目录使用的游戏范围
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
-pub(super) struct NewsSourceQuery {
-    /// 新闻来源，例如 web_cn 或 mys
-    pub source: String,
+pub(super) struct NewsGameQuery {
+    /// 游戏 ID
+    pub game: String,
 }
 
-impl NewsSourceQuery {
-    /// 校验并返回公开新闻来源值
-    pub(super) fn into_source(self) -> Result<String, AppError> {
-        required_value(self.source, "source")
-    }
+/// 新闻标签目录仍由游戏与来源共同确定
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(super) struct NewsTagQuery {
+    /// 游戏 ID
+    pub game: String,
+    /// 新闻来源
+    pub source: String,
 }
 
 /// 视频新闻单集 NFO 接受的上下文参数
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(super) struct NewsEpisodeNfoQuery {
-    /// 新闻来源，例如 web_cn 或 mys
-    pub source: String,
     /// 季编号，0 表示特别篇
     pub season: u32,
     /// 集编号，从 1 开始
@@ -123,10 +134,7 @@ pub(super) struct NewsEpisodeNfoQuery {
 
 impl NewsFilterQuery {
     /// 将 HTTP 筛选参数解析为列表与 RSS 共用的应用层条件
-    pub(super) fn into_filter(
-        self,
-        GamePath { game_id }: GamePath,
-    ) -> Result<NewsFilter, AppError> {
+    pub(super) fn into_filter(self) -> Result<NewsFilter, AppError> {
         let (start_publish_time, end_publish_time) =
             parse_publish_time_range(self.published_from, self.published_to)
                 .map_err(AppError::BadRequest)?;
@@ -139,8 +147,8 @@ impl NewsFilterQuery {
             .filter(|query| !query.is_empty());
 
         Ok(NewsFilter {
-            source_id: required_value(self.source, "source")?,
-            game_id,
+            source_ids: normalize_relation_filters(self.source, "source")?,
+            game_ids: normalize_relation_filters(self.game, "game")?,
             title_query,
             tags: normalize_relation_filters(self.tag, "tag")?,
             include_untagged: self.untagged.unwrap_or(false),
@@ -191,9 +199,6 @@ impl NewsRssQuery {
 impl NewsEpisodeNfoQuery {
     /// 校验媒体库文件名和 NFO 使用的季集编号
     pub(super) fn validate(self) -> Result<Self, AppError> {
-        if self.source.trim().is_empty() {
-            return Err(AppError::BadRequest("source must not be empty".to_owned()));
-        }
         if self.season > 9_999 {
             return Err(AppError::BadRequest(
                 "season must be between 0 and 9999".to_owned(),
@@ -205,10 +210,7 @@ impl NewsEpisodeNfoQuery {
             ));
         }
 
-        Ok(Self {
-            source: self.source.trim().to_owned(),
-            ..self
-        })
+        Ok(self)
     }
 }
 
@@ -253,17 +255,6 @@ fn normalize_relation_filters(
         )));
     }
     Ok(normalized)
-}
-
-/// 校验必填查询字符串并去除首尾空白
-fn required_value(value: String, field_name: &str) -> Result<String, AppError> {
-    let value = value.trim();
-    if value.is_empty() {
-        return Err(AppError::BadRequest(format!(
-            "{field_name} must not be empty"
-        )));
-    }
-    Ok(value.to_owned())
 }
 
 /// 将公开日期上下界解析为中国时区中的右开时间范围
@@ -340,8 +331,8 @@ mod tests {
             Err(AppError::BadRequest(_))
         ));
         let filter = akasha_application::news::NewsFilter {
-            source_id: "mys".to_owned(),
-            game_id: "ys".to_owned(),
+            game_ids: vec!["ys".to_owned()],
+            source_ids: vec!["mys".to_owned()],
             title_query: None,
             tags: Vec::new(),
             include_untagged: false,
@@ -390,7 +381,7 @@ mod tests {
     #[test]
     fn deserializes_repeated_public_filters() {
         let uri: Uri =
-            "/api/v1/games/ys/news?source=mys&tag=角色&tag=活动&character=10000046&character=10000073"
+            "/api/v1/news?game=ys&source=mys&tag=角色&tag=活动&character=10000046&character=10000073"
                 .parse()
                 .expect("应构造查询 URI");
         let Query(query) =
@@ -398,7 +389,7 @@ mod tests {
         let AxumQuery(page) =
             AxumQuery::<NewsPageQuery>::try_from_uri(&uri).expect("分页参数解析应忽略共用筛选参数");
 
-        assert_eq!(query.source, "mys");
+        assert_eq!(query.source, ["mys"]);
         assert_eq!(query.tag, ["角色", "活动"]);
         assert_eq!(query.character, ["10000046", "10000073"]);
         assert_eq!(page.limit, None);
@@ -408,7 +399,6 @@ mod tests {
     fn validates_episode_numbers_and_source() {
         assert!(
             NewsEpisodeNfoQuery {
-                source: " web_cn ".to_owned(),
                 season: 0,
                 episode: 1,
             }
@@ -417,7 +407,6 @@ mod tests {
         );
         assert!(matches!(
             NewsEpisodeNfoQuery {
-                source: "web_cn".to_owned(),
                 season: 1,
                 episode: 0,
             }

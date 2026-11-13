@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Call Akasha public read-only endpoints",
         epilog=(
-            "example: %(prog)s /api/v1/games/ys/news "
+            "example: %(prog)s /api/v1/news --query game=ys "
             "--query source=web_cn --query tag=活动 --query limit=10"
         ),
     )

@@ -17,7 +17,7 @@
 GET /api/v1/games
 ```
 
-游戏数据集合目前仅支持：
+角色、成就和 Calendar 当前支持：
 
 | 游戏 | ID |
 | --- | --- |
@@ -25,7 +25,7 @@ GET /api/v1/games
 | 崩坏：星穹铁道 | `sr` |
 | 绝区零 | `zzz` |
 
-`GET /api/v1/games/{game_id}` 返回指定游戏详情。游戏列表可能包含尚未提供游戏数据集合的其他游戏，因此不要把列表中的任意 ID 直接用于 `/data`
+`GET /api/v1/games/{game_id}` 返回指定游戏详情。游戏列表还包含其他新闻支持的游戏，不能据此假定它们具备角色、成就或 Calendar 资料
 
 ## 通用响应
 
@@ -46,130 +46,63 @@ GET /api/v1/games
   "limit": 20,
   "offset": 0,
   "items": [],
-  "meta": {}
+  "meta": null
 }
 ```
 
 分页默认 `limit=20`，最大 `100`。使用稳定的相同筛选条件递增 `offset`
 
-## 游戏数据
+## 游戏本体资料
 
-### 发现集合
-
-```http
-GET /api/v1/games/{game_id}/data
-```
-
-先读取返回的集合 ID 和条目数量，再查询集合。常用集合是 `character`，其他集合随游戏不同
-
-### 查询列表
+角色、成就与版本是游戏本体资料。角色接口和响应 schema 按游戏独立，当前已提供原神、星铁、绝区零的目录：
 
 ```http
-GET /api/v1/games/{game_id}/data/{collection}
+GET /api/v1/games/ys/characters
+GET /api/v1/games/sr/characters
+GET /api/v1/games/zzz/characters
+GET /api/v1/games/{game_id}/achievements
+GET /api/v1/games/{game_id}/achievement-groups
+GET /api/v1/games/{game_id}/versions
 ```
 
-通用参数：
+角色目录当前返回 `id`、`name`、`icon`、`birthday_month`、`birthday_day`，支持 `limit`（默认 100，1 到 100）与 `offset`，暂无资料返回空列表。头像和生日可为 `null`。各游戏后续字段沿各自角色资源扩展，当前不提供战斗属性、配音等筛选，也不提供通用 `/data/{collection}` 公开读取接口
 
-- `q`：名称和摘要文本查询，支持空格 AND、`|` OR、`-` 排除和引号短语
-- `limit`：1 到 100
-- `offset`：从 0 开始
-
-角色集合参数按游戏区分：
-
-| 游戏 | 可用角色筛选 |
-| --- | --- |
-| `ys` | `element`、`weapon_type`、`rarity`、`region`、`affiliation`、`cv`、`birthday_month`、`birthday_day`、`special` |
-| `sr` | `path`、`combat_type`、`rarity`、`camp`、`cv`、`birthday_month`、`birthday_day` |
-| `zzz` | `specialty_id`、`specialty`、`element_id`、`element`、`hit_type_id`、`hit_type`、`camp_id`、`camp`、`rarity`、`gender`、`special_element`、`birthday_month`、`birthday_day` |
-
-角色专用参数只能用于 `character` 集合。不支持的游戏与字段组合返回 `400`
-
-### 查询详情
-
-```http
-GET /api/v1/games/{game_id}/data/{collection}/{id}
-```
-
-返回完整摘要、详情和后端资源链接。条目 ID 来自列表响应，不要根据名称猜测
+成就列表支持 `q`、`group_id`、`hidden`、`limit`、`offset`；版本接口一次按开始时间返回完整已保存时间线，区间为 `[start_time, end_time)`，最后一项的结束时间可以为空。接口不维护玩家状态
 
 ## 新闻
 
-### 发现来源
+新闻是统一内容资源，游戏与来源是可组合的筛选条件：
 
 ```http
-GET /api/v1/games/{game_id}/news/sources
+GET /api/v1/news
+GET /api/v1/news?game=ys&game=sr&source=mys
+GET /api/v1/news/sources?game=ys
+GET /api/v1/news/tags?game=ys&source=mys
 ```
 
-当前 `ys`、`sr`、`zzz` 常见来源为：
+来源目录和标签目录仍按指定游戏发现配置，来源 ID 以实际返回为准。新闻列表支持：
 
-- `web_cn`：游戏官网
-- `mys`：米游社
-
-仍应以来源发现接口为准
-
-### 标签
-
-```http
-GET /api/v1/games/{game_id}/news/tags?source={source}
-```
-
-返回指定来源的标签分组、新闻数量和最近新闻预览
-
-### 新闻列表
-
-```http
-GET /api/v1/games/{game_id}/news?source={source}
-```
-
-参数：
-
-- `source`：必填
+- `game`、`source`：可重复；省略某项即不限制该维度
 - `q`：标题查询，支持空格 AND、`|` OR、`-` 排除、引号短语和反斜杠转义
-- `tag`：任一匹配标签，可重复，最多 32 个
-- `untagged`：是否包含无标签新闻
-- `character`：任一匹配角色 ID，可重复，最多 32 个
+- `tag`、`character`：可重复，任一匹配，最多 32 个；角色 ID 在所属游戏上下文中解释
+- `untagged`：包含无标签新闻
 - `news_type`：`article` 或 `video`
-- `published_from`：包含该日，`YYYY-MM-DD`
-- `published_to`：包含该日，`YYYY-MM-DD`
-- `limit`：默认 20，最大 100
-- `offset`：默认 0
+- `published_from`、`published_to`：包含当日，格式 `YYYY-MM-DD`
+- `limit`：默认 20，最大 100；`offset`：默认 0
 - `order`：`asc` 或 `desc`，默认 `desc`
 
-重复参数表示“匹配任意一个值”，例如 `tag=角色&tag=活动`
-
-### 新闻详情
+跨游戏和来源在服务端统一排序与分页，每条新闻返回 `game_id`、`source` 和 `id`。分页 `meta` 为 `null`。三个标识共同定位新闻，不能仅凭新闻 ID 判断身份
 
 ```http
-GET /api/v1/games/{game_id}/news/{news_id}?source={source}
+GET /api/v1/news/{game_id}/{source}/{news_id}
+GET /api/v1/news/{game_id}/{source}/{news_id}/media/video
+GET /api/v1/news/{game_id}/{source}/{news_id}/media/nfo
+GET /api/v1/news/{game_id}/{source}/series/{tag_name}/media/nfo
+GET /api/v1/news/{game_id}/{source}/series/{tag_name}/episodes/{news_id}/media/nfo?season={season}&episode={episode}
+GET /api/v1/news/rss?game=ys&source=mys
 ```
 
-`source` 必填。视频新闻详情还可能包含相关推荐
-
-### RSS
-
-```http
-GET /api/v1/games/{game_id}/news/rss?source={source}
-```
-
-新闻筛选参数与列表相同，并使用 `limit` 控制条目数。响应是 RSS XML，不是 JSON。该接口有限流，遇到 `429` 时遵循 `Retry-After`
-
-### NFO
-
-```http
-GET /api/v1/games/{game_id}/news/{news_id}/media/nfo?source={source}
-GET /api/v1/games/{game_id}/news/series/{tag_name}/media/nfo?source={source}
-GET /api/v1/games/{game_id}/news/series/{tag_name}/episodes/{news_id}/media/nfo?source={source}&season={season}&episode={episode}
-```
-
-单集 `season` 范围为 0 到 9999，`episode` 范围为 1 到 999999。响应是 XML NFO
-
-### 视频地址
-
-```http
-GET /api/v1/games/{game_id}/news/{news_id}/media/video?source={source}
-```
-
-该接口返回当前有效的视频播放信息并有限流。米游社视频 URL 可能包含临时签名，只在任务需要时获取，不作为永久地址缓存
+RSS 支持列表相同筛选，返回 RSS XML；NFO 返回 XML。单集 `season` 为 0 到 9999，`episode` 为 1 到 999999。视频接口返回当前播放地址，米游社临时签名不能作为永久链接缓存。RSS 和视频接口遇到 `429` 时遵循 `Retry-After`
 
 ## 日历
 

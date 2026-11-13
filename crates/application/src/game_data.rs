@@ -1,9 +1,7 @@
 use serde_json::Value;
 
 use crate::{
-    ApplicationError, ApplicationRepository, ApplicationServices,
-    audit::AuditContext,
-    characters::{SrCharacterListFilter, YsCharacterListFilter, ZzzCharacterListFilter},
+    ApplicationError, ApplicationRepository, ApplicationServices, audit::AuditContext,
     search::TextQuery,
 };
 
@@ -49,18 +47,9 @@ pub struct GameDataListFilter {
     pub game_id: String,
     pub collection: String,
     pub query: Option<TextQuery>,
-    pub collection_filter: Option<GameDataCollectionFilter>,
+    pub achievement_filter: Option<crate::achievements::AchievementListFilter>,
     pub limit: u64,
     pub offset: u64,
-}
-
-/// 需要按集合类型执行的专属筛选
-#[derive(Debug, Clone)]
-pub enum GameDataCollectionFilter {
-    Achievement(crate::achievements::AchievementListFilter),
-    YsCharacter(YsCharacterListFilter),
-    SrCharacter(SrCharacterListFilter),
-    ZzzCharacter(ZzzCharacterListFilter),
 }
 
 /// 替换一个游戏的单个数据集合
@@ -102,27 +91,6 @@ where
         game_id: &str,
     ) -> Result<Vec<GameDataCollection>, ApplicationError> {
         Ok(self.repository.list_game_data_collections(game_id).await?)
-    }
-
-    /// 列出一个游戏数据集合中的条目
-    pub async fn list_game_data(
-        &self,
-        filter: GameDataListFilter,
-    ) -> Result<(u64, Vec<GameDataEntry>), ApplicationError> {
-        Ok(self.repository.list_game_data(filter).await?)
-    }
-
-    /// 查找一个游戏数据条目
-    pub async fn find_game_data(
-        &self,
-        game_id: &str,
-        collection: &str,
-        id: &str,
-    ) -> Result<Option<GameDataEntry>, ApplicationError> {
-        Ok(self
-            .repository
-            .find_game_data(game_id, collection, id)
-            .await?)
     }
 
     /// 分页读取一个集合的条目 ID 和同步指纹

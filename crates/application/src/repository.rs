@@ -94,14 +94,6 @@ pub trait ApplicationRepository: Send + Sync {
         filter: GameDataListFilter,
     ) -> impl Future<Output = RepositoryResult<(u64, Vec<GameDataEntry>)>> + Send;
 
-    /// 查找一个游戏数据条目
-    fn find_game_data(
-        &self,
-        game_id: &str,
-        collection: &str,
-        id: &str,
-    ) -> impl Future<Output = RepositoryResult<Option<GameDataEntry>>> + Send;
-
     /// 分页读取游戏数据同步状态
     fn list_game_data_sync_state(
         &self,

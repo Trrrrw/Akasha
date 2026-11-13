@@ -29,30 +29,6 @@ pub fn public_asset_url(asset_base_url: &str, value: Option<String>) -> Option<S
     })
 }
 
-/// 递归把 JSON 中的站内资源路径转换为公开绝对地址
-pub fn public_asset_json(asset_base_url: &str, value: serde_json::Value) -> serde_json::Value {
-    match value {
-        serde_json::Value::String(path) if path.starts_with('/') && !path.starts_with("//") => {
-            serde_json::Value::String(
-                public_asset_url(asset_base_url, Some(path)).expect("资源路径应存在"),
-            )
-        }
-        serde_json::Value::Array(values) => serde_json::Value::Array(
-            values
-                .into_iter()
-                .map(|value| public_asset_json(asset_base_url, value))
-                .collect(),
-        ),
-        serde_json::Value::Object(values) => serde_json::Value::Object(
-            values
-                .into_iter()
-                .map(|(key, value)| (key, public_asset_json(asset_base_url, value)))
-                .collect(),
-        ),
-        value => value,
-    }
-}
-
 /// 不分页列表接口的统一响应外壳
 #[derive(Serialize, ToSchema)]
 #[schema(description = "列表数据响应")]
@@ -98,7 +74,7 @@ impl ErrorResponse {
 mod tests {
     use chrono::DateTime;
 
-    use super::{public_asset_json, public_asset_url, utc_timestamp};
+    use super::{public_asset_url, utc_timestamp};
 
     #[test]
     fn defaults_bundled_images_to_webp_without_rewriting_other_assets() {
@@ -134,17 +110,6 @@ mod tests {
             );
         }
         assert_eq!(public_asset_url("https://assets.example", None), None);
-        let value = public_asset_json(
-            "https://assets.example",
-            serde_json::json!({
-                "images": ["/assets/games/zzz/icon.avif", null]
-            }),
-        );
-        assert_eq!(
-            value["images"][0],
-            "https://assets.example/assets/games/zzz/icon.webp"
-        );
-        assert!(value["images"][1].is_null());
     }
 
     #[test]

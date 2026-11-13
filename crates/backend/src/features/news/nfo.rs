@@ -391,6 +391,7 @@ mod tests {
         let timezone = FixedOffset::east_opt(8 * 60 * 60).expect("应创建 UTC+8 时区");
 
         NewsSummary {
+            game_id: "ys".into(),
             id: "video-1".to_owned(),
             source_id: "web_cn".to_owned(),
             title: "角色 <PV> & 幕后\u{1}".to_owned(),

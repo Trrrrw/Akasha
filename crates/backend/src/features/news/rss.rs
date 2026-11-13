@@ -5,13 +5,7 @@ use rss::{ChannelBuilder, GuidBuilder, ItemBuilder};
 use crate::http::response::public_asset_url;
 
 /// 根据应用层新闻读取模型构建 RSS 2.0 文档
-pub(super) fn build(
-    game_id: &str,
-    source_id: &str,
-    rows: Vec<NewsSummary>,
-    game_cover: Option<String>,
-    asset_base_url: &str,
-) -> String {
+pub(super) fn build(rows: Vec<NewsSummary>, asset_base_url: &str) -> String {
     let last_build_date = rows
         .first()
         .map(|item| item.publish_time.with_timezone(&Utc).to_rfc2822());
@@ -27,13 +21,13 @@ pub(super) fn build(
                 .pub_date(Some(news.publish_time.with_timezone(&Utc).to_rfc2822()))
                 .guid(Some(
                     GuidBuilder::default()
-                        .value(format!("{game_id}:{source_id}:{}", news.id))
+                        .value(format!("{}:{}:{}", news.game_id, news.source_id, news.id))
                         .permalink(false)
                         .build(),
                 ))
                 .description(description(
                     news.intro,
-                    public_asset_url(asset_base_url, news.cover.or_else(|| game_cover.clone())),
+                    public_asset_url(asset_base_url, news.cover),
                     news.video_url,
                     news.video_playback,
                     news.news_type,

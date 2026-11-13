@@ -49,11 +49,11 @@ pub struct NewsSource {
     pub index: i64,
 }
 
-/// 一个游戏及来源下可复用于列表和 RSS 的新闻筛选条件
+/// 可跨游戏及来源复用于列表和 RSS 的新闻筛选条件
 #[derive(Debug, Clone)]
 pub struct NewsFilter {
-    pub source_id: String,
-    pub game_id: String,
+    pub source_ids: Vec<String>,
+    pub game_ids: Vec<String>,
     pub title_query: Option<TextQuery>,
     pub tags: Vec<String>,
     pub include_untagged: bool,
@@ -89,6 +89,7 @@ pub struct NewsFeedFilter {
 /// 不依赖持久化实现的新闻读取模型
 #[derive(Debug, Clone)]
 pub struct NewsSummary {
+    pub game_id: String,
     pub id: String,
     /// 新闻来源标识，用于选择对应的外部资源处理规则
     pub source_id: String,
@@ -177,14 +178,12 @@ pub struct NewsTag {
 pub struct NewsListResult {
     pub total: u64,
     pub items: Vec<NewsSummary>,
-    pub game_cover: Option<String>,
 }
 
 /// 包含游戏兜底封面的 RSS 新闻集合
 #[derive(Debug, Clone)]
 pub struct NewsFeedResult {
     pub items: Vec<NewsSummary>,
-    pub game_cover: Option<String>,
 }
 
 /// 一条新闻及其游戏的兜底封面资源
@@ -364,27 +363,33 @@ where
         &self,
         filter: ListNewsFilter,
     ) -> Result<NewsListResult, ApplicationError> {
-        let game_id = filter.filter.game_id.clone();
-        let (total, items) = self.repository.list_news(filter).await?;
-        let game_cover = self.repository.find_game_cover(&game_id).await?;
-
-        Ok(NewsListResult {
-            total,
-            items,
-            game_cover,
-        })
+        let (total, mut items) = self.repository.list_news(filter).await?;
+        self.fill_news_covers(&mut items).await?;
+        Ok(NewsListResult { total, items })
     }
 
-    /// 按与新闻列表相同的筛选规则读取固定倒序 RSS 条目
+    /// 按与新闻列表相同的筛选规则读取 RSS 条目
     pub async fn list_news_feed(
         &self,
         filter: NewsFeedFilter,
     ) -> Result<NewsFeedResult, ApplicationError> {
-        let game_id = filter.filter.game_id.clone();
-        let items = self.repository.list_news_feed(filter).await?;
-        let game_cover = self.repository.find_game_cover(&game_id).await?;
+        let mut items = self.repository.list_news_feed(filter).await?;
+        self.fill_news_covers(&mut items).await?;
+        Ok(NewsFeedResult { items })
+    }
 
-        Ok(NewsFeedResult { items, game_cover })
+    async fn fill_news_covers(&self, items: &mut [NewsSummary]) -> Result<(), ApplicationError> {
+        let mut covers = std::collections::HashMap::new();
+        for item in items.iter_mut().filter(|item| item.cover.is_none()) {
+            if !covers.contains_key(&item.game_id) {
+                covers.insert(
+                    item.game_id.clone(),
+                    self.repository.find_game_cover(&item.game_id).await?,
+                );
+            }
+            item.cover = covers[&item.game_id].clone();
+        }
+        Ok(())
     }
 
     /// 读取维护任务需要的原始新闻分页

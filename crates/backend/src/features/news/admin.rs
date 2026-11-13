@@ -5,7 +5,7 @@ use akasha_application::news::{
 };
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::State,
     http::{HeaderMap, HeaderValue, StatusCode, header::HeaderName},
     response::IntoResponse,
 };
@@ -19,7 +19,7 @@ use crate::{
     http::{
         error::AppError,
         extractors::{AuditRequest, DataWriteActor},
-        path::{GamePath, require_news_source},
+        path::require_news_source,
         response::utc_timestamp,
     },
     state::AppState,
@@ -30,6 +30,7 @@ const AKASHA_CHANGE_HEADER: HeaderName = HeaderName::from_static("x-akasha-chang
 /// 创建或更新新闻的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsRequest {
+    game_id: String,
     source_id: String,
     id: String,
     title: String,
@@ -52,7 +53,8 @@ pub(crate) struct UpdateNewsRequest {
 /// 读取维护任务所需原始新闻的管理查询参数
 #[derive(Deserialize)]
 pub(crate) struct NewsRawQuery {
-    source_id: String,
+    game: String,
+    source: String,
     id: Option<String>,
     after_id: Option<String>,
     news_type: Option<String>,
@@ -91,13 +93,13 @@ pub(crate) struct NewsRawItemResponse {
 pub(crate) async fn list_raw(
     actor: DataWriteActor,
     State(state): State<AppState>,
-    Path(GamePath { game_id }): Path<GamePath>,
     MultiQuery(query): MultiQuery<NewsRawQuery>,
 ) -> Result<Json<NewsRawPageResponse>, AppError> {
+    let game_id = query.game;
     tracing::debug!(
         actor = %actor.label(),
         game_id = %game_id,
-        source_id = %query.source_id,
+        source_id = %query.source,
         "listing raw news for maintenance"
     );
 
@@ -106,7 +108,7 @@ pub(crate) async fn list_raw(
             "id and after_id cannot be used together".into(),
         ));
     }
-    let source_id = normalized_source_id(&query.source_id)?;
+    let source_id = normalized_source_id(&query.source)?;
     let news_type = normalized_optional_news_type(query.news_type)?;
     require_news_source(&state, &game_id, &source_id).await?;
 
@@ -164,10 +166,10 @@ impl From<akasha_application::news::NewsRawItem> for NewsRawItemResponse {
 pub(crate) async fn update_news(
     actor: DataWriteActor,
     State(state): State<AppState>,
-    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<UpdateNewsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    let game_id = body.game_id;
     let source_id = normalized_source_id(&body.source_id)?;
     let news_type = normalized_news_type(&body.news_type)?;
     let video_playback = normalized_video_playback(
@@ -243,6 +245,7 @@ pub(crate) async fn update_news(
 /// 同步新闻来源标签目录的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct SyncTagsRequest {
+    game_id: String,
     source_id: String,
     tags: Vec<NewsTagInput>,
     audit: Option<AuditRequest>,
@@ -259,10 +262,10 @@ pub(crate) struct SyncTagsResponse {
 pub(crate) async fn sync_tags(
     actor: DataWriteActor,
     State(state): State<AppState>,
-    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<SyncTagsRequest>,
 ) -> Result<Json<SyncTagsResponse>, AppError> {
+    let game_id = body.game_id;
     let source_id = normalized_source_id(&body.source_id)?;
     require_news_source(&state, &game_id, &source_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
@@ -294,10 +297,10 @@ pub(crate) async fn sync_tags(
 pub(crate) async fn update_tags(
     actor: DataWriteActor,
     State(state): State<AppState>,
-    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<UpdateNewsTagsRequest>,
 ) -> Result<StatusCode, AppError> {
+    let game_id = body.game_id;
     let source_id = normalized_source_id(&body.source_id)?;
     require_news_source(&state, &game_id, &source_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);
@@ -325,6 +328,7 @@ pub(crate) async fn update_tags(
 /// 替换多个新闻标签集合的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsTagsRequest {
+    game_id: String,
     source_id: String,
     updates: Vec<NewsTagUpdate>,
     audit: Option<AuditRequest>,
@@ -333,6 +337,7 @@ pub(crate) struct UpdateNewsTagsRequest {
 /// 替换多个新闻角色集合的 HTTP 请求体
 #[derive(Deserialize)]
 pub(crate) struct UpdateNewsCharactersRequest {
+    game_id: String,
     source_id: String,
     updates: Vec<NewsCharacterUpdate>,
     audit: Option<AuditRequest>,
@@ -342,10 +347,10 @@ pub(crate) struct UpdateNewsCharactersRequest {
 pub(crate) async fn update_characters(
     actor: DataWriteActor,
     State(state): State<AppState>,
-    Path(GamePath { game_id }): Path<GamePath>,
     headers: HeaderMap,
     Json(body): Json<UpdateNewsCharactersRequest>,
 ) -> Result<StatusCode, AppError> {
+    let game_id = body.game_id;
     let source_id = normalized_source_id(&body.source_id)?;
     require_news_source(&state, &game_id, &source_id).await?;
     let audit = actor.audit_context(body.audit.unwrap_or_default(), &headers);

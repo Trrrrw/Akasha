@@ -6,8 +6,8 @@ use akasha_application::news::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveEnum, ColumnTrait, Condition, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, QueryTrait, RelationTrait, Select, sea_query::Expr,
+    ActiveEnum, ColumnTrait, Condition, EntityTrait, ExprTrait, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, QueryTrait, RelationTrait, Select, sea_query::Expr,
 };
 
 use crate::{
@@ -51,8 +51,7 @@ pub async fn list(db: &Db, filter: ListNewsFilter) -> Result<(u64, Vec<NewsSumma
         .await
         .map_err(DbError::Query)?;
 
-    let items =
-        summaries_with_tags(db, &filter.filter.game_id, &filter.filter.source_id, rows).await?;
+    let items = summaries_across_sources(db, rows).await?;
 
     Ok((total, items))
 }
@@ -65,95 +64,99 @@ pub async fn list_feed(db: &Db, filter: NewsFeedFilter) -> Result<Vec<NewsSummar
         .await
         .map_err(DbError::Query)?;
 
-    summaries_with_tags(db, &filter.filter.game_id, &filter.filter.source_id, rows).await
+    summaries_across_sources(db, rows).await
 }
 
 /// 构造新闻列表与 RSS 完全共用的数据库筛选条件
 fn filtered_query(filter: &NewsFilter) -> Result<Select<news::Entity>, DbError> {
-    let mut query = news::Entity::find()
-        .filter(news::Column::GameId.eq(&filter.game_id))
-        .filter(news::Column::SourceId.eq(&filter.source_id));
-
-    if let Some(start) = filter.start_publish_time {
-        let start = start.with_timezone(&Utc).fixed_offset();
-        query = query.filter(news::Column::PublishTime.gte(start));
+    let mut query = news::Entity::find();
+    if !filter.game_ids.is_empty() {
+        query = query.filter(news::Column::GameId.is_in(filter.game_ids.clone()));
     }
-
-    if let Some(end) = filter.end_publish_time {
-        let end = end.with_timezone(&Utc).fixed_offset();
-        query = query.filter(news::Column::PublishTime.lt(end));
+    if !filter.source_ids.is_empty() {
+        query = query.filter(news::Column::SourceId.is_in(filter.source_ids.clone()));
     }
-
-    if let Some(news_type) = filter.news_type.as_ref() {
-        let news_type = news::NewsType::try_from_value(news_type).map_err(DbError::Query)?;
-        query = query.filter(news::Column::NewsType.eq(news_type));
+    if let Some(news_type) = &filter.news_type {
+        query = query.filter(
+            news::Column::NewsType
+                .eq(news::NewsType::try_from_value(news_type).map_err(DbError::Query)?),
+        );
     }
-
+    if let Some(time) = filter.start_publish_time {
+        query =
+            query.filter(news::Column::PublishTime.gte(time.with_timezone(&Utc).fixed_offset()));
+    }
+    if let Some(time) = filter.end_publish_time {
+        query = query.filter(news::Column::PublishTime.lt(time.with_timezone(&Utc).fixed_offset()));
+    }
     if !filter.tags.is_empty() || filter.include_untagged {
-        let mut tag_conditions = Condition::any();
-
+        let related = || {
+            news_tags_link::Entity::find()
+                .select_only()
+                .column(news_tags_link::Column::NewsId)
+                .filter(
+                    Expr::col((news_tags_link::Entity, news_tags_link::Column::GameId))
+                        .equals((news::Entity, news::Column::GameId)),
+                )
+                .filter(
+                    Expr::col((news_tags_link::Entity, news_tags_link::Column::SourceId))
+                        .equals((news::Entity, news::Column::SourceId)),
+                )
+                .filter(
+                    Expr::col((news_tags_link::Entity, news_tags_link::Column::NewsId))
+                        .equals((news::Entity, news::Column::Id)),
+                )
+        };
+        let mut matching = Condition::any();
         if !filter.tags.is_empty() {
-            let tag_news_ids = news_tags_link::Entity::find()
-                .select_only()
-                .column(news_tags_link::Column::NewsId)
-                .filter(news_tags_link::Column::GameId.eq(&filter.game_id))
-                .filter(news_tags_link::Column::SourceId.eq(&filter.source_id))
-                .filter(news_tags_link::Column::Name.is_in(filter.tags.iter().cloned()))
-                .into_query();
-
-            tag_conditions = tag_conditions.add(news::Column::Id.in_subquery(tag_news_ids));
+            matching = matching.add(Expr::exists(
+                related()
+                    .filter(news_tags_link::Column::Name.is_in(filter.tags.clone()))
+                    .into_query(),
+            ));
         }
-
         if filter.include_untagged {
-            let tagged_news_ids = news_tags_link::Entity::find()
-                .select_only()
-                .column(news_tags_link::Column::NewsId)
-                .filter(news_tags_link::Column::GameId.eq(&filter.game_id))
-                .filter(news_tags_link::Column::SourceId.eq(&filter.source_id))
-                .into_query();
-
-            tag_conditions = tag_conditions.add(news::Column::Id.not_in_subquery(tagged_news_ids));
+            matching = matching.add(Expr::exists(related().into_query()).not());
         }
-
-        query = query.filter(tag_conditions);
+        query = query.filter(matching);
     }
-
     if !filter.character_ids.is_empty() {
-        let character_news_ids = {
-            macro_rules! query_game {
-                ($link:ident) => {{
+        macro_rules! related_characters {
+            ($link:ident) => {
+                Expr::exists(
                     $link::Entity::find()
                         .select_only()
                         .column($link::Column::NewsId)
-                        .filter($link::Column::GameId.eq(&filter.game_id))
-                        .filter($link::Column::SourceId.eq(&filter.source_id))
                         .filter(
-                            $link::Column::CharacterId.is_in(filter.character_ids.iter().cloned()),
+                            Expr::col(($link::Entity, $link::Column::GameId))
+                                .equals((news::Entity, news::Column::GameId)),
                         )
-                        .into_query()
-                }};
-            }
-            match filter.game_id.as_str() {
-                "ys" => query_game!(ys_news_characters_link),
-                "sr" => query_game!(sr_news_characters_link),
-                "zzz" => query_game!(zzz_news_characters_link),
-                game_id => {
-                    return Err(DbError::Query(sea_orm::DbErr::Custom(format!(
-                        "character filtering is not supported for game {game_id}"
-                    ))));
-                }
-            }
-        };
-        query = query.filter(news::Column::Id.in_subquery(character_news_ids));
+                        .filter(
+                            Expr::col(($link::Entity, $link::Column::SourceId))
+                                .equals((news::Entity, news::Column::SourceId)),
+                        )
+                        .filter(
+                            Expr::col(($link::Entity, $link::Column::NewsId))
+                                .equals((news::Entity, news::Column::Id)),
+                        )
+                        .filter($link::Column::CharacterId.is_in(filter.character_ids.clone()))
+                        .into_query(),
+                )
+            };
+        }
+        query = query.filter(
+            Condition::any()
+                .add(related_characters!(ys_news_characters_link))
+                .add(related_characters!(sr_news_characters_link))
+                .add(related_characters!(zzz_news_characters_link)),
+        );
     }
-
-    if let Some(title_query) = filter.title_query.as_ref() {
+    if let Some(text) = &filter.title_query {
         query = query.filter(text_query_condition(
-            title_query,
+            text,
             &[Expr::col(news::Column::Title)],
         ));
     }
-
     Ok(query)
 }
 
@@ -166,7 +169,9 @@ fn ordered_query(query: Select<news::Entity>, order: NewsOrder) -> Select<news::
 
     query
         .order_by(news::Column::PublishTime, order.clone())
-        .order_by(news::Column::Id, order)
+        .order_by(news::Column::Id, order.clone())
+        .order_by_asc(news::Column::GameId)
+        .order_by_asc(news::Column::SourceId)
 }
 
 /// 按稳定的新闻 ID 顺序读取维护任务需要的原始新闻
@@ -526,6 +531,28 @@ async fn summary_with_tags(db: &Db, row: news::Model) -> Result<NewsSummary, DbE
     Ok(into_summary(row, tags, characters))
 }
 
+/// 按游戏和来源批量装配关联，再恢复数据库的全局分页顺序
+async fn summaries_across_sources(
+    db: &Db,
+    rows: Vec<news::Model>,
+) -> Result<Vec<NewsSummary>, DbError> {
+    let mut groups: HashMap<(String, String), Vec<(usize, news::Model)>> = HashMap::new();
+    for (index, row) in rows.into_iter().enumerate() {
+        groups
+            .entry((row.game_id.clone(), row.source_id.clone()))
+            .or_default()
+            .push((index, row));
+    }
+    let mut result = Vec::new();
+    for ((game, source), rows) in groups {
+        let (indexes, rows): (Vec<_>, Vec<_>) = rows.into_iter().unzip();
+        let summaries = summaries_with_tags(db, &game, &source, rows).await?;
+        result.extend(indexes.into_iter().zip(summaries));
+    }
+    result.sort_by_key(|(index, _)| *index);
+    Ok(result.into_iter().map(|(_, item)| item).collect())
+}
+
 /// 为一组已排序的数据库新闻记录批量补充标签
 async fn summaries_with_tags(
     db: &Db,
@@ -634,6 +661,7 @@ fn into_summary(
     characters: Vec<NewsCharacter>,
 ) -> NewsSummary {
     NewsSummary {
+        game_id: row.game_id,
         id: row.id,
         source_id: row.source_id,
         title: row.title,

@@ -1,7 +1,7 @@
 use akasha_application::game_data::{
-    GameDataCollection, GameDataCollectionFilter, GameDataEntry, GameDataListFilter,
-    GameDataSyncState, ListGameDataSyncStateFilter, SyncGameDataCollectionCommand,
-    SyncGameDataCollectionResult, UpdateGameDataCollectionCommand,
+    GameDataCollection, GameDataEntry, GameDataListFilter, GameDataSyncState,
+    ListGameDataSyncStateFilter, SyncGameDataCollectionCommand, SyncGameDataCollectionResult,
+    UpdateGameDataCollectionCommand,
 };
 
 use crate::{Db, DbError};
@@ -65,7 +65,7 @@ macro_rules! game_data_repository {
                         &fields,
                     ));
                 }
-                if let Some(GameDataCollectionFilter::Achievement(ref achievement)) = filter.collection_filter {
+                if let Some(ref achievement) = filter.achievement_filter {
                     if let Some(ref group_id) = achievement.group_id { query = query.filter(json_field("$.group_id").eq(group_id)); }
                     if let Some(hidden) = achievement.hidden { query = query.filter(json_field("$.hidden").eq(hidden)); }
                 }
@@ -106,18 +106,6 @@ macro_rules! game_data_repository {
                     .order_by_asc(json_field("$.group_id"))
                     .into_tuple::<(String,String,i64,i64)>().all(db.conn()).await.map_err(DbError::Query)?;
                 Ok(rows.into_iter().map(|(id,name,order,total)| akasha_application::achievements::AchievementGroup {id,name,order,total:total as u64}).collect())
-            }
-
-            pub async fn find(
-                db: &Db,
-                collection: &str,
-                id: &str,
-            ) -> Result<Option<GameDataEntry>, DbError> {
-                Ok($entity::Entity::find_by_id((collection.to_owned(), id.to_owned()))
-                    .one(db.conn())
-                    .await
-                    .map_err(DbError::Query)?
-                    .map(GameDataEntry::from))
             }
 
             pub async fn list_sync_state(
@@ -418,25 +406,6 @@ pub async fn list(
     db: &Db,
     filter: GameDataListFilter,
 ) -> Result<(u64, Vec<GameDataEntry>), DbError> {
-    if let Some(collection_filter) = filter.collection_filter.clone() {
-        return match collection_filter {
-            GameDataCollectionFilter::YsCharacter(filter) => {
-                crate::repositories::characters::list_ys_entries(db, filter).await
-            }
-            GameDataCollectionFilter::SrCharacter(filter) => {
-                crate::repositories::characters::list_sr_entries(db, filter).await
-            }
-            GameDataCollectionFilter::ZzzCharacter(filter) => {
-                crate::repositories::characters::list_zzz_entries(db, filter).await
-            }
-            GameDataCollectionFilter::Achievement(_) => match filter.game_id.as_str() {
-                "ys" => ys::list(db, filter).await,
-                "sr" => sr::list(db, filter).await,
-                "zzz" => zzz::list(db, filter).await,
-                _ => Ok((0, Vec::new())),
-            },
-        };
-    }
     match filter.game_id.as_str() {
         "ys" => ys::list(db, filter).await,
         "sr" => sr::list(db, filter).await,
@@ -454,20 +423,6 @@ pub async fn achievement_groups(
         "sr" => sr::achievement_groups(db).await,
         "zzz" => zzz::achievement_groups(db).await,
         _ => Ok(Vec::new()),
-    }
-}
-
-pub async fn find(
-    db: &Db,
-    game_id: &str,
-    collection: &str,
-    id: &str,
-) -> Result<Option<GameDataEntry>, DbError> {
-    match game_id {
-        "ys" => ys::find(db, collection, id).await,
-        "sr" => sr::find(db, collection, id).await,
-        "zzz" => zzz::find(db, collection, id).await,
-        _ => Ok(None),
     }
 }
 

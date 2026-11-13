@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ApplicationError, ApplicationRepository, ApplicationServices,
-    game_data::{GameDataCollectionFilter, GameDataListFilter},
+    ApplicationError, ApplicationRepository, ApplicationServices, game_data::GameDataListFilter,
     search::TextQuery,
 };
 
@@ -105,7 +104,7 @@ impl<R: ApplicationRepository> ApplicationServices<R> {
                 game_id,
                 collection: "achievement".to_owned(),
                 query,
-                collection_filter: Some(GameDataCollectionFilter::Achievement(filter)),
+                achievement_filter: Some(filter),
                 limit,
                 offset,
             })

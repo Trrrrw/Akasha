@@ -1,152 +1,182 @@
-use axum::{
-    Json,
-    extract::{Path, Query, State},
-};
-use serde::Deserialize;
-use utoipa::IntoParams;
-
 use crate::{
-    features::game_data::{
-        dto::{GameDataCollectionResponse, GameDataDetailResponse, GameDataEntryResponse},
-        query::GameDataListQuery,
-    },
     http::{
         error::AppError,
-        path::{require_game, require_game_data_collection},
-        response::{ErrorResponse, ListResponse, PageResponse},
+        path::require_game,
+        response::{ErrorResponse, PageResponse, public_asset_url},
     },
     state::AppState,
 };
+use akasha_application::characters::{
+    SrCharacter, SrCharacterListFilter, YsCharacter, YsCharacterListFilter, ZzzCharacter,
+    ZzzCharacterListFilter,
+};
+use axum::{
+    Json,
+    extract::{Query, State},
+};
+use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 
-#[derive(Deserialize, IntoParams)]
-#[into_params(parameter_in = Path)]
-pub(super) struct GameDataCollectionPath {
-    /// 游戏 ID，仅支持 ys、sr、zzz
-    game_id: String,
-    /// 数据集合 ID
-    collection: String,
+/// 角色目录分页参数
+#[derive(Default, Deserialize, IntoParams)]
+#[serde(deny_unknown_fields)]
+#[into_params(parameter_in = Query)]
+pub(super) struct CharacterQuery {
+    /// 每页数量，默认 100，范围 1 到 100
+    limit: Option<u64>,
+    /// 分页偏移，默认 0
+    offset: Option<u64>,
 }
 
-#[derive(Deserialize, IntoParams)]
-#[into_params(parameter_in = Path)]
-pub(super) struct GameDataDetailPath {
-    /// 游戏 ID，仅支持 ys、sr、zzz
-    game_id: String,
-    /// 数据集合 ID
-    collection: String,
-    /// 数据条目 ID
+/// Ys 角色公共响应，字段仅在本游戏的资源中扩展
+#[derive(Serialize, ToSchema)]
+pub(super) struct YsCharacterResponse {
     id: String,
+    name: String,
+    icon: Option<String>,
+    birthday_month: Option<i16>,
+    birthday_day: Option<i16>,
+}
+impl YsCharacterResponse {
+    fn from_character(item: YsCharacter, asset_base: &str) -> Self {
+        Self {
+            id: item.id,
+            name: item.name,
+            icon: public_asset_url(
+                asset_base,
+                item.icon_url
+                    .filter(|v| v.starts_with("/assets/game-data/")),
+            ),
+            birthday_month: item.birthday_month,
+            birthday_day: item.birthday_day,
+        }
+    }
 }
 
-#[utoipa::path(
-    get,
-    path = "/games/{game_id}/data",
-    tag = "Game Data",
-    summary = "获取游戏数据集合",
-    description = "列出后端已保存的游戏数据集合和条目数量",
-    params(crate::http::path::GamePath),
-    responses(
-        (status = 200, body = ListResponse<GameDataCollectionResponse>),
-        (status = 404, body = ErrorResponse),
-        (status = 500, body = ErrorResponse)
-    )
-)]
-pub(super) async fn collections(
-    Path(crate::http::path::GamePath { game_id }): Path<crate::http::path::GamePath>,
-    State(state): State<AppState>,
-) -> Result<Json<ListResponse<GameDataCollectionResponse>>, AppError> {
-    validate_game(&game_id)?;
-    require_game(&state, &game_id).await?;
-    let items: Vec<GameDataCollectionResponse> = state
-        .application()
-        .list_game_data_collections(&game_id)
-        .await?
-        .into_iter()
-        .map(GameDataCollectionResponse::from)
-        .collect();
-    Ok(Json(ListResponse {
-        total: items.len() as u64,
-        items,
-    }))
+/// Sr 角色公共响应，字段仅在本游戏的资源中扩展
+#[derive(Serialize, ToSchema)]
+pub(super) struct SrCharacterResponse {
+    id: String,
+    name: String,
+    icon: Option<String>,
+    birthday_month: Option<i16>,
+    birthday_day: Option<i16>,
+}
+impl SrCharacterResponse {
+    fn from_character(item: SrCharacter, asset_base: &str) -> Self {
+        Self {
+            id: item.id,
+            name: item.name,
+            icon: public_asset_url(
+                asset_base,
+                item.icon_url
+                    .filter(|v| v.starts_with("/assets/game-data/")),
+            ),
+            birthday_month: item.birthday_month,
+            birthday_day: item.birthday_day,
+        }
+    }
 }
 
-#[utoipa::path(
-    get,
-    path = "/games/{game_id}/data/{collection}",
-    tag = "Game Data",
-    summary = "获取游戏数据列表",
-    description = "分页读取一个游戏数据集合，返回摘要和后端资源链接；character 集合支持参数中注明的各游戏角色字段筛选",
-    params(GameDataCollectionPath, GameDataListQuery),
-    responses(
-        (status = 200, body = PageResponse<GameDataEntryResponse>),
-        (status = 400, body = ErrorResponse),
-        (status = 404, body = ErrorResponse),
-        (status = 500, body = ErrorResponse)
-    )
-)]
-pub(super) async fn list(
-    Path(GameDataCollectionPath {
-        game_id,
-        collection,
-    }): Path<GameDataCollectionPath>,
-    State(state): State<AppState>,
-    Query(query): Query<GameDataListQuery>,
-) -> Result<Json<PageResponse<GameDataEntryResponse>>, AppError> {
-    validate_game(&game_id)?;
-    validate_collection(&collection)?;
-    require_game_data_collection(&state, &game_id, &collection).await?;
-    let filter = query.into_filter(game_id, collection)?;
-    let limit = filter.limit;
-    let offset = filter.offset;
-    let (total, items) = state.application().list_game_data(filter).await?;
-    let asset_base_url = &state.config().asset_base_url;
-    Ok(Json(PageResponse {
-        total,
-        limit,
-        offset,
-        items: items
-            .into_iter()
-            .map(|item| GameDataEntryResponse::from_entry(item, asset_base_url))
-            .collect(),
-        meta: (),
-    }))
+/// Zzz 角色公共响应，字段仅在本游戏的资源中扩展
+#[derive(Serialize, ToSchema)]
+pub(super) struct ZzzCharacterResponse {
+    id: String,
+    name: String,
+    icon: Option<String>,
+    birthday_month: Option<i16>,
+    birthday_day: Option<i16>,
+}
+impl ZzzCharacterResponse {
+    fn from_character(item: ZzzCharacter, asset_base: &str) -> Self {
+        Self {
+            id: item.id,
+            name: item.name,
+            icon: public_asset_url(
+                asset_base,
+                item.icon_url
+                    .filter(|v| v.starts_with("/assets/game-data/")),
+            ),
+            birthday_month: item.birthday_month,
+            birthday_day: item.birthday_day,
+        }
+    }
 }
 
-#[utoipa::path(
-    get,
-    path = "/games/{game_id}/data/{collection}/{id}",
-    tag = "Game Data",
-    summary = "获取游戏数据详情",
-    description = "读取一个游戏数据条目的完整摘要、详情和后端资源链接",
-    params(GameDataDetailPath),
-    responses(
-        (status = 200, body = GameDataDetailResponse),
-        (status = 400, body = ErrorResponse),
-        (status = 404, body = ErrorResponse),
-        (status = 500, body = ErrorResponse)
-    )
-)]
-pub(super) async fn detail(
-    Path(GameDataDetailPath {
-        game_id,
-        collection,
-        id,
-    }): Path<GameDataDetailPath>,
-    State(state): State<AppState>,
-) -> Result<Json<GameDataDetailResponse>, AppError> {
-    validate_game(&game_id)?;
-    validate_collection(&collection)?;
-    require_game(&state, &game_id).await?;
-    let item = state
-        .application()
-        .find_game_data(&game_id, &collection, &id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("game data entry not found".to_owned()))?;
-    Ok(Json(GameDataDetailResponse::from_entry(
-        item,
-        &state.config().asset_base_url,
-    )))
+/// 每个游戏注册独立响应 schema，共用 HTTP 分页流程
+macro_rules! character_endpoint {
+    ($function:ident, $path:literal, $game:literal, $model:ident, $filter:ident, $method:ident) => {
+        #[utoipa::path(
+                            get,
+                            path = $path,
+                            tag = "Game Data",
+                            summary = "获取角色目录",
+                            description = "返回本游戏的角色目录，支持分页；尚无资料时返回空列表",
+                            params(CharacterQuery),
+                            responses(
+                                (status = 200, body = PageResponse<$model>),
+                                (status = 400, body = ErrorResponse),
+                                (status = 404, body = ErrorResponse),
+                                (status = 500, body = ErrorResponse)
+                            )
+                        )]
+        pub(super) async fn $function(
+            State(state): State<AppState>,
+            Query(query): Query<CharacterQuery>,
+        ) -> Result<Json<PageResponse<$model>>, AppError> {
+            require_game(&state, $game).await?;
+            let limit = query.limit.unwrap_or(100);
+            if !(1..=100).contains(&limit) {
+                return Err(AppError::BadRequest(
+                    "character limit must be between 1 and 100".into(),
+                ));
+            }
+            let offset = query.offset.unwrap_or(0);
+            let (total, items) = state
+                .application()
+                .$method($filter {
+                    birthday_only: false,
+                    limit,
+                    offset,
+                })
+                .await?;
+            Ok(Json(PageResponse {
+                total,
+                limit,
+                offset,
+                meta: (),
+                items: items
+                    .into_iter()
+                    .map(|item| $model::from_character(item, &state.config().asset_base_url))
+                    .collect(),
+            }))
+        }
+    };
 }
+character_endpoint!(
+    ys_characters,
+    "/games/ys/characters",
+    "ys",
+    YsCharacterResponse,
+    YsCharacterListFilter,
+    list_ys_characters
+);
+character_endpoint!(
+    sr_characters,
+    "/games/sr/characters",
+    "sr",
+    SrCharacterResponse,
+    SrCharacterListFilter,
+    list_sr_characters
+);
+character_endpoint!(
+    zzz_characters,
+    "/games/zzz/characters",
+    "zzz",
+    ZzzCharacterResponse,
+    ZzzCharacterListFilter,
+    list_zzz_characters
+);
 
 pub(super) fn validate_game(game_id: &str) -> Result<(), AppError> {
     if matches!(game_id, "ys" | "sr" | "zzz") {
@@ -159,16 +189,11 @@ pub(super) fn validate_game(game_id: &str) -> Result<(), AppError> {
 }
 
 pub(super) fn validate_collection(collection: &str) -> Result<(), AppError> {
-    if !collection.is_empty()
-        && collection.len() <= 64
-        && collection
-            .bytes()
-            .all(|value| value.is_ascii_alphanumeric() || matches!(value, b'_' | b'-'))
-    {
+    if matches!(collection, "achievement" | "character") {
         Ok(())
     } else {
-        Err(AppError::BadRequest(
-            "invalid game data collection".to_owned(),
-        ))
+        Err(AppError::NotFound(format!(
+            "unsupported collection: {collection}"
+        )))
     }
 }

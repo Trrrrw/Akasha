@@ -1,14 +1,11 @@
-use std::path::{Component, Path, PathBuf};
-
 use akasha_application::game_data::{
     GameDataEntry, ListGameDataSyncStateFilter, SyncGameDataCollectionCommand,
     SyncGameDataCollectionResult, UpdateGameDataCollectionCommand,
 };
 use axum::{
     Json,
-    body::Bytes,
     extract::{Path as AxumPath, Query, State, rejection::JsonRejection},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -176,29 +173,6 @@ pub(crate) async fn update_collection(
     Ok(Json(result.into()))
 }
 
-pub(crate) async fn upload_asset(
-    actor: DataWriteActor,
-    State(state): State<AppState>,
-    AxumPath((game_id, path)): AxumPath<(String, String)>,
-    body: Bytes,
-) -> Result<StatusCode, AppError> {
-    validate_game(&game_id)?;
-    require_game(&state, &game_id).await?;
-    let relative = safe_asset_path(&path)?;
-    let root = state.config().game_data_asset_dir.join(&game_id);
-    let target = root.join(relative);
-    if let Some(parent) = target.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|error| AppError::Internal(error.into()))?;
-    }
-    tokio::fs::write(&target, body)
-        .await
-        .map_err(|error| AppError::Internal(error.into()))?;
-    tracing::debug!(actor = %actor.label(), game_id, path = %target.display(), "stored game data asset");
-    Ok(StatusCode::NO_CONTENT)
-}
-
 fn valid_optional_asset_path(value: Option<&str>) -> bool {
     value.is_none_or(|value| value.starts_with("/assets/game-data/"))
 }
@@ -227,22 +201,6 @@ fn contains_external_url(value: &Value) -> bool {
         Value::Object(values) => values.values().any(contains_external_url),
         _ => false,
     }
-}
-
-fn safe_asset_path(value: &str) -> Result<PathBuf, AppError> {
-    let path = Path::new(value);
-    if value.is_empty()
-        || value.contains('\\')
-        || path.is_absolute()
-        || path
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-    {
-        return Err(AppError::BadRequest(
-            "invalid game data asset path".to_owned(),
-        ));
-    }
-    Ok(path.to_owned())
 }
 
 impl From<SyncGameDataCollectionResult> for SyncGameDataCollectionResponse {

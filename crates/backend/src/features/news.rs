@@ -34,17 +34,11 @@ pub(crate) fn public_router() -> OpenApiRouter<AppState> {
 /// 构建受信任新闻同步路由
 pub(crate) fn admin_router() -> Router<AppState> {
     Router::new()
-        .route("/games/{game_id}/news", post(admin::update_news))
-        .route("/games/{game_id}/news/raw", get(admin::list_raw))
-        .route("/games/{game_id}/news/tags", post(admin::sync_tags))
-        .route(
-            "/games/{game_id}/news/tags/relations",
-            post(admin::update_tags),
-        )
-        .route(
-            "/games/{game_id}/news/characters/relations",
-            post(admin::update_characters),
-        )
+        .route("/news", post(admin::update_news))
+        .route("/news/raw", get(admin::list_raw))
+        .route("/news/tags", post(admin::sync_tags))
+        .route("/news/tags/relations", post(admin::update_tags))
+        .route("/news/characters/relations", post(admin::update_characters))
 }
 
 /// 返回 NFO 本地日期计算使用的中国标准时区

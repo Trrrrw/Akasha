@@ -180,6 +180,7 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
 /// 将新闻写入命令转换为接口返回所需的公开摘要
 fn news_summary(command: UpdateNewsCommand) -> NewsSummary {
     NewsSummary {
+        game_id: command.game_id,
         id: command.id,
         source_id: command.source_id,
         title: command.title,

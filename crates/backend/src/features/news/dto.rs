@@ -181,27 +181,12 @@ impl NewsUntaggedResponse {
     }
 }
 
-/// 新闻列表的来源和游戏上下文
-#[derive(Serialize, ToSchema)]
-#[schema(description = "新闻列表上下文")]
-pub(super) struct NewsListMeta {
-    /// 新闻来源
-    source: String,
-    /// 游戏 ID
-    game_id: String,
-}
-
-impl NewsListMeta {
-    /// 创建新闻列表响应的来源和游戏上下文
-    pub(super) fn new(source: String, game_id: String) -> Self {
-        Self { source, game_id }
-    }
-}
-
 /// 公开新闻条目响应
 #[derive(Serialize, ToSchema)]
 #[schema(description = "新闻基础信息")]
 pub(crate) struct NewsItemResponse {
+    /// 所属游戏
+    game_id: String,
     /// 新闻 ID
     id: String,
     /// 新闻来源，米游社视频解析接口需要使用该来源上下文
@@ -377,6 +362,7 @@ impl NewsItemResponse {
         };
 
         Self {
+            game_id: value.game_id,
             id: value.id,
             source: value.source_id,
             title: value.title,
@@ -452,6 +438,7 @@ mod tests {
     /// 构造用于响应转换测试的新闻摘要
     fn summary(source_id: &str, video_url: Option<&str>) -> NewsSummary {
         NewsSummary {
+            game_id: "ys".into(),
             id: "news-1".to_owned(),
             source_id: source_id.to_owned(),
             title: "测试新闻".to_owned(),
