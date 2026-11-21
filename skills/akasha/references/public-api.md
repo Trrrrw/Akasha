@@ -76,6 +76,7 @@ GET /api/v1/games/{game_id}/versions
 ```http
 GET /api/v1/news
 GET /api/v1/news?game=ys&game=sr&source=mys
+GET /api/v1/news/search?q=原石&search_body=true
 GET /api/v1/news/sources?game=ys
 GET /api/v1/news/tags?game=ys&source=mys
 ```
@@ -95,6 +96,8 @@ GET /api/v1/news/tags?game=ys&source=mys
 跨游戏和来源在服务端统一排序与分页，每条新闻返回 `game_id`、`source` 和 `id`。分页 `meta` 为 `null`。三个标识共同定位新闻，不能仅凭新闻 ID 判断身份
 
 启用正文搜索时，列表条目可以返回 `search_match.title` 和 `search_match.body`。前者包含完整标题，后者是命中位置附近的正文片段。两者均为有序的 `{text, highlight}` 纯文本片段，可按 `highlight` 渲染关键词。没有正向命中的字段会省略
+
+关键词查询优先使用 `/api/v1/news/search`。它要求非空 `q`，支持相同的筛选和分页参数，返回卡片信息与可用的命中片段。完整 `intro` 通过新闻详情读取。独立搜索及旧列表的带关键词请求共享限流，收到 `429` 时遵循 `Retry-After`
 
 ```http
 GET /api/v1/news/{game_id}/{source}/{news_id}

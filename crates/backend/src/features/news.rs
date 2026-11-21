@@ -23,6 +23,7 @@ pub(crate) fn public_router() -> OpenApiRouter<AppState> {
         .routes(routes!(endpoints::list_sources))
         .routes(routes!(endpoints::list_tags))
         .routes(routes!(endpoints::list))
+        .routes(routes!(endpoints::search))
         .routes(routes!(endpoints::detail))
         .routes(routes!(media::movie_nfo))
         .routes(routes!(media::series_nfo))

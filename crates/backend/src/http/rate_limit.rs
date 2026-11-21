@@ -18,15 +18,20 @@ const MAX_TRACKED_CLIENTS: usize = 65_536;
 #[derive(Clone)]
 pub(crate) struct PublicRateLimiters {
     video: ClientRateLimiter,
+    news_search: ClientRateLimiter,
     rss: ClientRateLimiter,
     trusted_proxy_ips: Arc<HashSet<IpAddr>>,
 }
 
 impl PublicRateLimiters {
-    /// 根据运行时配置创建视频详情和 RSS 限流器
+    /// 根据运行时配置创建各类新闻接口限流器
     pub(crate) fn new(config: &PublicRateLimitConfig) -> Self {
         Self {
             video: ClientRateLimiter::new(config.video_requests_per_minute, config.video_burst),
+            news_search: ClientRateLimiter::new(
+                config.news_search_requests_per_minute,
+                config.news_search_burst,
+            ),
             rss: ClientRateLimiter::new(config.rss_requests_per_minute, config.rss_burst),
             trusted_proxy_ips: Arc::new(config.trusted_proxy_ips.iter().copied().collect()),
         }
@@ -40,6 +45,11 @@ impl PublicRateLimiters {
     /// 检查客户端是否仍可请求视频详情接口
     pub(crate) fn check_video(&self, client_ip: IpAddr) -> Result<(), RateLimitExceeded> {
         self.video.check(client_ip)
+    }
+
+    /// 检查客户端是否仍可请求新闻搜索
+    pub(crate) fn check_news_search(&self, client_ip: IpAddr) -> Result<(), RateLimitExceeded> {
+        self.news_search.check(client_ip)
     }
 
     /// 检查客户端是否仍可请求 RSS 接口

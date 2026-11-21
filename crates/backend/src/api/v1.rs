@@ -164,7 +164,7 @@ mod tests {
                 .is_some()
         );
 
-        for path in ["/api/v1/news", "/api/v1/news/rss"] {
+        for path in ["/api/v1/news", "/api/v1/news/search", "/api/v1/news/rss"] {
             let parameters = document["paths"][path]["get"]["parameters"]
                 .as_array()
                 .expect("新闻查询应记录公共筛选参数");
@@ -172,9 +172,11 @@ mod tests {
                 .iter()
                 .filter_map(|parameter| parameter["name"].as_str())
                 .collect::<Vec<_>>();
-            for name in ["source", "q", "tag", "character"] {
+            for name in ["source", "q", "search_body", "tag", "character"] {
                 assert!(names.contains(&name), "GET {path} 缺少 {name} 参数");
             }
+            let keyword = parameters.iter().find(|p| p["name"] == "q").unwrap();
+            assert_eq!(keyword["required"], path == "/api/v1/news/search");
             for legacy_name in ["source_id", "tags", "during", "reverse"] {
                 assert!(
                     !names.contains(&legacy_name),
@@ -184,6 +186,8 @@ mod tests {
         }
 
         for path in [
+            "/api/v1/news",
+            "/api/v1/news/search",
             "/api/v1/news/{game_id}/{source}/{news_id}/media/video",
             "/api/v1/news/rss",
         ] {

@@ -1,3 +1,4 @@
+use akasha_application::news::ListNewsFilter;
 use axum::{
     Json,
     extract::{ConnectInfo, Path, Query, State},
@@ -9,7 +10,10 @@ use std::net::SocketAddr;
 
 use crate::{
     features::news::{
-        dto::{NewsDetailResponse, NewsItemResponse, NewsSourceResponse, NewsTagsResponse},
+        dto::{
+            NewsDetailResponse, NewsItemResponse, NewsSearchResultResponse, NewsSourceResponse,
+            NewsTagsResponse,
+        },
         query::{
             NewsDetailPath, NewsFilterQuery, NewsGameQuery, NewsPageQuery, NewsRssQuery,
             NewsTagQuery,
@@ -98,23 +102,89 @@ pub(super) async fn list_tags(
     path = "/news",
     tag = "News",
     summary = "获取新闻列表",
-    description = "按来源、标题语法、标签、角色、类型和发布日期筛选新闻，并返回稳定分页结果",
-    params(NewsFilterQuery, NewsPageQuery),
+    description = "按来源、标签、角色、类型和发布日期筛选新闻，并返回稳定分页结果；带关键词的旧版请求继续可用，并与搜索接口共享限流",
+    params(NewsFilterQuery, NewsPageQuery,
+        ("q" = Option<String>, Query, description = "支持空格 AND、竖线 OR、减号排除、引号短语和反斜杠转义")
+    ),
     responses(
         (status = 200, body = PageResponse<NewsItemResponse>),
         (status = 400, body = crate::http::response::ErrorResponse),
         (status = 404, body = crate::http::response::ErrorResponse),
+        (
+            status = 429,
+            body = crate::http::response::ErrorResponse,
+            headers(("Retry-After" = u64, description = "建议等待秒数"))
+        ),
         (status = 500, body = crate::http::response::ErrorResponse)
     )
 )]
 /// 列出跨游戏及来源筛选的一页新闻
 pub(super) async fn list(
     State(state): State<AppState>,
+    ConnectInfo(client_address): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     MultiQuery(filter_query): MultiQuery<NewsFilterQuery>,
     Query(page_query): Query<NewsPageQuery>,
 ) -> Result<Json<PageResponse<NewsItemResponse>>, AppError> {
     let filter = page_query.apply(filter_query.into_filter()?)?;
-    validate_news_filter(&state, &filter.filter).await?;
+    if filter.filter.text_query.is_some() {
+        check_search_rate_limit(&state, &headers, client_address)?;
+    }
+    read_news_page(&state, filter, std::convert::identity).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/news/search",
+    tag = "News",
+    summary = "搜索新闻",
+    description = "必须提供非空关键词 q。支持标题和正文搜索、新闻筛选与分页，返回卡片信息和命中片段；完整正文通过新闻详情接口读取",
+    params(NewsFilterQuery, NewsPageQuery,
+        ("q" = String, Query, description = "支持空格 AND、竖线 OR、减号排除、引号短语和反斜杠转义")
+    ),
+    responses(
+        (status = 200, body = PageResponse<NewsSearchResultResponse>),
+        (status = 400, body = crate::http::response::ErrorResponse),
+        (status = 404, body = crate::http::response::ErrorResponse),
+        (
+            status = 429,
+            body = crate::http::response::ErrorResponse,
+            headers(("Retry-After" = u64, description = "建议等待秒数"))
+        ),
+        (status = 500, body = crate::http::response::ErrorResponse)
+    )
+)]
+pub(super) async fn search(
+    State(state): State<AppState>,
+    ConnectInfo(client_address): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    MultiQuery(filter_query): MultiQuery<NewsFilterQuery>,
+    Query(page_query): Query<NewsPageQuery>,
+) -> Result<Json<PageResponse<NewsSearchResultResponse>>, AppError> {
+    let filter = page_query.apply(filter_query.into_filter()?)?;
+    if filter.filter.text_query.is_none() {
+        return Err(AppError::BadRequest("q must not be empty".to_owned()));
+    }
+    check_search_rate_limit(&state, &headers, client_address)?;
+    read_news_page(&state, filter, NewsSearchResultResponse::from).await
+}
+
+fn check_search_rate_limit(
+    state: &AppState,
+    headers: &HeaderMap,
+    client_address: SocketAddr,
+) -> Result<(), AppError> {
+    let limits = state.public_rate_limiters();
+    limits.check_news_search(limits.client_ip(headers, client_address))?;
+    Ok(())
+}
+
+async fn read_news_page<T>(
+    state: &AppState,
+    filter: ListNewsFilter,
+    map_item: impl Fn(NewsItemResponse) -> T,
+) -> Result<Json<PageResponse<T>>, AppError> {
+    validate_news_filter(state, &filter.filter).await?;
     let limit = filter.limit;
     let offset = filter.offset;
 
@@ -122,7 +192,13 @@ pub(super) async fn list(
     let items = result
         .items
         .into_iter()
-        .map(|news| NewsItemResponse::from_summary(news, None, &state.config().asset_base_url))
+        .map(|news| {
+            map_item(NewsItemResponse::from_summary(
+                news,
+                None,
+                &state.config().asset_base_url,
+            ))
+        })
         .collect();
 
     Ok(Json(PageResponse {
@@ -176,7 +252,9 @@ pub(super) async fn detail(
     tag = "News",
     summary = "获取新闻 RSS",
     description = "按新闻筛选条件生成固定为发布时间倒序的 RSS 2.0 订阅源；请求按客户端 IP 限流，冷缓存签名刷新数量受请求预算限制",
-    params(NewsFilterQuery, NewsRssQuery),
+    params(NewsFilterQuery, NewsRssQuery,
+        ("q" = Option<String>, Query, description = "支持空格 AND、竖线 OR、减号排除、引号短语和反斜杠转义")
+    ),
     responses(
         (status = 200, description = "RSS 2.0 XML", content_type = "application/rss+xml"),
         (status = 400, body = crate::http::response::ErrorResponse),

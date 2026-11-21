@@ -23,6 +23,8 @@ video_requests_per_minute = 30
 video_burst = 10
 rss_requests_per_minute = 12
 rss_burst = 3
+news_search_requests_per_minute = 30
+news_search_burst = 10
 rss_mys_refresh_limit = 10
 
 [audit]

@@ -219,6 +219,44 @@ pub(crate) struct NewsItemResponse {
     search_match: Option<NewsSearchMatchResponse>,
 }
 
+/// 搜索结果卡片所需的字段
+#[derive(Serialize, ToSchema)]
+pub(crate) struct NewsSearchResultResponse {
+    game_id: String,
+    id: String,
+    source: String,
+    title: String,
+    publish_time: Option<String>,
+    source_url: String,
+    cover: Option<String>,
+    news_type: String,
+    tags: Vec<String>,
+    characters: Vec<NewsCharacterResponse>,
+    video_duration: Option<u64>,
+    /// 用于展示结果的命中片段，正文搜索有正向命中时返回
+    #[serde(skip_serializing_if = "Option::is_none")]
+    search_match: Option<NewsSearchMatchResponse>,
+}
+
+impl From<NewsItemResponse> for NewsSearchResultResponse {
+    fn from(value: NewsItemResponse) -> Self {
+        Self {
+            game_id: value.game_id,
+            id: value.id,
+            source: value.source,
+            title: value.title,
+            publish_time: value.publish_time,
+            source_url: value.source_url,
+            cover: value.cover,
+            news_type: value.news_type,
+            tags: value.tags,
+            characters: value.characters,
+            video_duration: value.video_duration,
+            search_match: value.search_match,
+        }
+    }
+}
+
 #[derive(Serialize, ToSchema)]
 struct NewsSearchMatchResponse {
     /// 完整标题的分段，标题有命中时返回

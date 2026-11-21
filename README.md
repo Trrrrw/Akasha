@@ -58,6 +58,8 @@ cp config/backend.toml.example config/backend.toml
 | `RATE_LIMIT_TRUSTED_PROXY_IPS` | 空 | 可提供 `X-Forwarded-For` 的可信反向代理 IP，多个值用逗号分隔 |
 | `NEWS_VIDEO_RATE_LIMIT_PER_MINUTE` | `30` | 视频详情接口每分钟为每个客户端 IP 补充的请求令牌数 |
 | `NEWS_VIDEO_RATE_LIMIT_BURST` | `10` | 视频详情接口允许每个客户端 IP 突发使用的令牌数 |
+| `NEWS_SEARCH_RATE_LIMIT_PER_MINUTE` | `30` | 新闻搜索每分钟为每个客户端 IP 补充的请求令牌数 |
+| `NEWS_SEARCH_RATE_LIMIT_BURST` | `10` | 新闻搜索允许每个客户端 IP 突发使用的令牌数 |
 | `NEWS_RSS_RATE_LIMIT_PER_MINUTE` | `12` | RSS 接口每分钟为每个客户端 IP 补充的请求令牌数 |
 | `NEWS_RSS_RATE_LIMIT_BURST` | `3` | RSS 接口允许每个客户端 IP 突发使用的令牌数 |
 | `NEWS_RSS_MYS_REFRESH_LIMIT` | `10` | 单次 RSS 请求最多触发的米游社视频签名刷新数，缓存命中不计入，设为 `0` 可禁用刷新 |
@@ -136,6 +138,8 @@ docker logs -f akasha-backend
 ## 新闻与角色目录
 
 新闻统一入口为 `GET /api/v1/news`，可通过重复的 `game`、`source` 参数筛选，也可跨游戏、跨来源分页。每条记录携带 `game_id`、`source` 和 `id`；详情为 `/api/v1/news/{game_id}/{source}/{news_id}`，RSS 为 `/api/v1/news/rss`
+
+搜索使用 `GET /api/v1/news/search?q=关键词`，可加 `search_body=true` 同时搜索正文。搜索结果返回卡片信息和可用的高亮片段，完整正文由详情接口提供。旧列表的关键词查询与搜索接口共享客户端限流
 
 新闻来源和标签目录分别为 `/api/v1/news/sources?game={game_id}` 与 `/api/v1/news/tags?game={game_id}&source={source}`。受保护写入入口为 `/api/v1/admin/news`，原始内容查询为 `/api/v1/admin/news/raw?game={game_id}&source={source}`；写入体包含 `game_id` 与 `source_id`
 

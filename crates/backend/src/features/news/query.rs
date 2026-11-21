@@ -67,6 +67,7 @@ pub(super) struct NewsFilterQuery {
     #[serde(default)]
     pub game: Vec<String>,
     /// 文本查询，支持空格 AND、竖线 OR、减号排除、引号短语和反斜杠转义
+    #[param(ignore)]
     pub q: Option<String>,
     /// 同时搜索正文。默认仅搜索标题
     pub search_body: Option<bool>,

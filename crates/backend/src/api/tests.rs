@@ -7,6 +7,10 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 async fn app() -> Router {
+    app_with_search_burst(30).await
+}
+
+async fn app_with_search_burst(news_search_burst: u32) -> Router {
     crate::build_app(crate::Config {
         log_level: "error".into(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
@@ -22,6 +26,8 @@ async fn app() -> Router {
             trusted_proxy_ips: vec![],
             video_requests_per_minute: 30,
             video_burst: 30,
+            news_search_requests_per_minute: 30,
+            news_search_burst,
             rss_requests_per_minute: 30,
             rss_burst: 30,
             rss_mys_refresh_limit: 1,
@@ -109,6 +115,38 @@ async fn news_body_search_is_opt_in_and_returns_plain_highlighted_excerpts() {
     assert_eq!(status, StatusCode::CREATED);
     let (_, title_only) = json_request(&app, "GET", "/api/v1/news?q=原石", Value::Null).await;
     assert_eq!(title_only["total"], 0);
+
+    let (status, compact) = json_request(
+        &app,
+        "GET",
+        "/api/v1/news/search?q=原石&search_body=true&game=ys&limit=1",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(compact["total"], 1);
+    let hit = &compact["items"][0];
+    assert_eq!(hit["id"], "body-search");
+    assert!(hit["search_match"]["body"].is_array());
+    assert!(hit.get("intro").is_none());
+    assert!(hit.get("video_url").is_none());
+
+    let (status, _) = json_request(&app, "GET", "/api/v1/news/search?q=%20", Value::Null).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (_, compact_title) =
+        json_request(&app, "GET", "/api/v1/news/search?q=公告", Value::Null).await;
+    assert_eq!(compact_title["total"], 1);
+    assert!(compact_title["items"][0].get("search_match").is_none());
+
+    let (_, detail) = json_request(
+        &app,
+        "GET",
+        "/api/v1/news/ys/web_cn/body-search",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(detail["intro"], article["intro"]);
     for (query, matched) in [
         ("原石", "原石"),
         ("原石奖励", "原石奖励"),
@@ -162,6 +200,38 @@ async fn news_body_search_is_opt_in_and_returns_plain_highlighted_excerpts() {
     )
     .await;
     assert_eq!(updated["total"], 1);
+}
+
+#[tokio::test]
+async fn news_search_shares_its_limit_with_legacy_search_only() {
+    let app = app_with_search_burst(1).await;
+    let (status, _) = json_request(&app, "GET", "/api/v1/news/search?q=原石", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let limited = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/news?q=原石")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(limited.headers().contains_key("retry-after"));
+
+    let (status, _) = json_request(&app, "GET", "/api/v1/news", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let rss = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/news/rss?q=原石")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rss.status(), StatusCode::OK);
 }
 
 #[tokio::test]

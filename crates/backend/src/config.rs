@@ -34,7 +34,7 @@ pub struct Config {
     pub audit_log_retention_days: u32,
 }
 
-/// 新闻视频和 RSS 接口的客户端限流及上游刷新预算
+/// 新闻搜索、视频和 RSS 接口的客户端限流及上游刷新预算
 #[derive(Clone)]
 pub struct PublicRateLimitConfig {
     /// 允许提供真实客户端转发链的反向代理 IP
@@ -43,6 +43,10 @@ pub struct PublicRateLimitConfig {
     pub video_requests_per_minute: u32,
     /// 视频详情接口允许的客户端突发请求数
     pub video_burst: u32,
+    /// 新闻搜索每分钟补充的客户端令牌数
+    pub news_search_requests_per_minute: u32,
+    /// 新闻搜索允许的客户端突发请求数
+    pub news_search_burst: u32,
     /// RSS 接口每分钟补充的客户端令牌数
     pub rss_requests_per_minute: u32,
     /// RSS 接口允许的客户端突发请求数
@@ -96,6 +100,8 @@ struct FileRateLimitConfig {
     trusted_proxy_ips: Option<Vec<String>>,
     video_requests_per_minute: Option<u32>,
     video_burst: Option<u32>,
+    news_search_requests_per_minute: Option<u32>,
+    news_search_burst: Option<u32>,
     rss_requests_per_minute: Option<u32>,
     rss_burst: Option<u32>,
     rss_mys_refresh_limit: Option<u32>,
@@ -181,6 +187,16 @@ impl Config {
                 video_burst: positive_u32(
                     "NEWS_VIDEO_RATE_LIMIT_BURST",
                     file.rate_limits.video_burst,
+                    10,
+                )?,
+                news_search_requests_per_minute: positive_u32(
+                    "NEWS_SEARCH_RATE_LIMIT_PER_MINUTE",
+                    file.rate_limits.news_search_requests_per_minute,
+                    30,
+                )?,
+                news_search_burst: positive_u32(
+                    "NEWS_SEARCH_RATE_LIMIT_BURST",
+                    file.rate_limits.news_search_burst,
                     10,
                 )?,
                 rss_requests_per_minute: positive_u32(
