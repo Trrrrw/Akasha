@@ -114,6 +114,19 @@ pub async fn update_news(db: &Db, command: UpdateNewsCommand) -> Result<UpdateNe
                     .await?;
                 }
 
+                if created || changed_fields.contains(&"title") || changed_fields.contains(&"intro")
+                {
+                    super::search::upsert(
+                        txn,
+                        &command.game_id,
+                        &command.source_id,
+                        &command.id,
+                        &command.title,
+                        command.intro.as_deref(),
+                    )
+                    .await?;
+                }
+
                 if created || changed_fields.contains(&"tags") {
                     news_tags_link::Entity::delete_many()
                         .filter(news_tags_link::Column::GameId.eq(&command.game_id))
@@ -199,6 +212,7 @@ fn news_summary(command: UpdateNewsCommand) -> NewsSummary {
         video_playback: command.video_playback,
         video_duration_ms: command.video_duration_ms,
         intro: command.intro,
+        search_match: None,
     }
 }
 

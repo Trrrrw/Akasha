@@ -97,6 +97,74 @@ async fn json_request(app: &Router, method: &str, path: &str, body: Value) -> (S
 }
 
 #[tokio::test]
+async fn news_body_search_is_opt_in_and_returns_plain_highlighted_excerpts() {
+    let app = app().await;
+    let mut article = json!({
+        "game_id":"ys","source_id":"web_cn","id":"body-search","title":"活动公告",
+        "intro": format!("<p>{}</p><p>领取<span>原石</span>奖励 &amp; 道具</p>", "前文。".repeat(100)),
+        "publish_time":"2026-01-01T00:00:00Z","source_url":"https://example.com/news",
+        "news_type":"article","tags":[],"raw_data":{}
+    });
+    let (status, _) = json_request(&app, "POST", "/api/v1/admin/news", article.clone()).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (_, title_only) = json_request(&app, "GET", "/api/v1/news?q=原石", Value::Null).await;
+    assert_eq!(title_only["total"], 0);
+    for (query, matched) in [
+        ("原石", "原石"),
+        ("原石奖励", "原石奖励"),
+        ("公告%20原石", "原石"),
+    ] {
+        let path = format!("/api/v1/news?q={query}&search_body=true&game=ys");
+        let (status, page) = json_request(&app, "GET", &path, Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(page["total"], 1);
+        let body = page["items"][0]["search_match"]["body"].as_array().unwrap();
+        assert!(
+            body.iter()
+                .any(|part| part == &json!({"text":matched,"highlight":true}))
+        );
+        let text = body
+            .iter()
+            .map(|part| part["text"].as_str().unwrap())
+            .collect::<String>();
+        assert!(text.starts_with('…') && text.contains("领取原石奖励 & 道具"));
+        assert!(!text.contains("<span>"));
+        assert!(text.chars().count() < 180);
+    }
+    let (_, excluded) = json_request(
+        &app,
+        "GET",
+        "/api/v1/news?q=公告%20-原石&search_body=true",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(excluded["total"], 0);
+    let (_, unfiltered) =
+        json_request(&app, "GET", "/api/v1/news?search_body=true", Value::Null).await;
+    assert!(unfiltered["items"][0].get("search_match").is_none());
+
+    article["intro"] = json!("<p>获得限定道具</p>");
+    let (status, _) = json_request(&app, "POST", "/api/v1/admin/news", article).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, stale) = json_request(
+        &app,
+        "GET",
+        "/api/v1/news?q=原石奖励&search_body=true",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(stale["total"], 0);
+    let (_, updated) = json_request(
+        &app,
+        "GET",
+        "/api/v1/news?q=限定道具&search_body=true",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(updated["total"], 1);
+}
+
+#[tokio::test]
 async fn news_identity_filters_and_pagination_are_scoped_to_each_record() {
     let app = app().await;
     let (status, _) = json_request(

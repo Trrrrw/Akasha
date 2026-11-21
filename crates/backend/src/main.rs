@@ -8,7 +8,10 @@ use tracing_subscriber::{EnvFilter, fmt};
 async fn main() -> Result<()> {
     let config = Config::load().context("failed to load configuration")?;
 
-    let filter = EnvFilter::try_new(&config.log_level).context("invalid LOG_LEVEL")?;
+    // HTML 解析库的调试日志会记录上游正文和标签属性
+    let filter = EnvFilter::try_new(&config.log_level)
+        .context("invalid LOG_LEVEL")?
+        .add_directive("html5ever=warn".parse().expect("valid log directive"));
     fmt().with_env_filter(filter).init();
 
     let bind_addr = config.bind_addr;

@@ -66,8 +66,10 @@ pub(super) struct NewsFilterQuery {
     /// 游戏 ID，可重复；省略时查询全部游戏
     #[serde(default)]
     pub game: Vec<String>,
-    /// 标题查询，支持空格 AND、竖线 OR、减号排除、引号短语和反斜杠转义
+    /// 文本查询，支持空格 AND、竖线 OR、减号排除、引号短语和反斜杠转义
     pub q: Option<String>,
+    /// 同时搜索正文。默认仅搜索标题
+    pub search_body: Option<bool>,
     /// 任一匹配标签，可重复传入
     #[serde(default)]
     pub tag: Vec<String>,
@@ -138,7 +140,7 @@ impl NewsFilterQuery {
         let (start_publish_time, end_publish_time) =
             parse_publish_time_range(self.published_from, self.published_to)
                 .map_err(AppError::BadRequest)?;
-        let title_query = self
+        let text_query = self
             .q
             .as_deref()
             .map(TextQuery::parse)
@@ -149,7 +151,8 @@ impl NewsFilterQuery {
         Ok(NewsFilter {
             source_ids: normalize_relation_filters(self.source, "source")?,
             game_ids: normalize_relation_filters(self.game, "game")?,
-            title_query,
+            text_query,
+            search_body: self.search_body.unwrap_or(false),
             tags: normalize_relation_filters(self.tag, "tag")?,
             include_untagged: self.untagged.unwrap_or(false),
             character_ids: normalize_relation_filters(self.character, "character")?,
@@ -333,7 +336,8 @@ mod tests {
         let filter = akasha_application::news::NewsFilter {
             game_ids: vec!["ys".to_owned()],
             source_ids: vec!["mys".to_owned()],
-            title_query: None,
+            text_query: None,
+            search_body: false,
             tags: Vec::new(),
             include_untagged: false,
             character_ids: Vec::new(),

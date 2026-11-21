@@ -87,6 +87,7 @@ async fn restarting_preserves_stored_news() {
         source_id: sea_orm::Set("web_cn".into()),
         id: sea_orm::Set("preserved".into()),
         title: sea_orm::Set("已保存新闻".into()),
+        intro: sea_orm::Set(Some("<p>历史正文奖励</p>".into())),
         publish_time: sea_orm::Set(Utc::now().fixed_offset()),
         source_url: sea_orm::Set("https://example.com/news".into()),
         cover: sea_orm::Set(Some(cover.into())),
@@ -106,9 +107,33 @@ async fn restarting_preserves_stored_news() {
             .await
             .expect("query news")
             .expect("preserved news");
+    let (total, matches) = repositories::news::list(
+        &db,
+        ListNewsFilter {
+            filter: NewsFilter {
+                game_ids: Vec::new(),
+                source_ids: Vec::new(),
+                text_query: Some(TextQuery::parse("正文奖励").unwrap()),
+                search_body: true,
+                tags: Vec::new(),
+                include_untagged: false,
+                character_ids: Vec::new(),
+                news_type: None,
+                start_publish_time: None,
+                end_publish_time: None,
+            },
+            limit: 10,
+            offset: 0,
+            order: NewsOrder::Desc,
+        },
+    )
+    .await
+    .expect("search backfilled news");
     db.conn.close().await.expect("close database");
     std::fs::remove_dir_all(directory).expect("remove test database");
     assert_eq!(item.cover.as_deref(), Some(cover));
+    assert_eq!(total, 1);
+    assert_eq!(matches[0].id, item.id);
 }
 
 #[tokio::test]
@@ -603,7 +628,8 @@ async fn filters_news_for_pages_and_feeds() {
     let filter = NewsFilter {
         game_ids: vec!["ys".to_owned()],
         source_ids: vec!["web_cn".to_owned()],
-        title_query: Some(TextQuery::parse("update \"100%_Done\"").expect("valid query")),
+        text_query: Some(TextQuery::parse("update \"100%_Done\"").expect("valid query")),
+        search_body: false,
         tags: Vec::new(),
         include_untagged: false,
         character_ids: vec!["1001".to_owned()],

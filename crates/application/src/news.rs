@@ -54,7 +54,8 @@ pub struct NewsSource {
 pub struct NewsFilter {
     pub source_ids: Vec<String>,
     pub game_ids: Vec<String>,
-    pub title_query: Option<TextQuery>,
+    pub text_query: Option<TextQuery>,
+    pub search_body: bool,
     pub tags: Vec<String>,
     pub include_untagged: bool,
     pub character_ids: Vec<String>,
@@ -106,6 +107,21 @@ pub struct NewsSummary {
     /// 视频时长，单位为毫秒
     pub video_duration_ms: Option<i64>,
     pub intro: Option<String>,
+    pub search_match: Option<NewsSearchMatch>,
+}
+
+/// 标题和正文中可直接用作搜索结果的纯文本
+#[derive(Debug, Clone)]
+pub struct NewsSearchMatch {
+    pub title: Option<Vec<NewsSearchPart>>,
+    pub body: Option<Vec<NewsSearchPart>>,
+}
+
+/// 一个普通或需要高亮的纯文本片段
+#[derive(Debug, Clone)]
+pub struct NewsSearchPart {
+    pub text: String,
+    pub highlight: bool,
 }
 
 /// 新闻关联的角色摘要

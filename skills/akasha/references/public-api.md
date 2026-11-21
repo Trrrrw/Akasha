@@ -84,6 +84,7 @@ GET /api/v1/news/tags?game=ys&source=mys
 
 - `game`、`source`：可重复；省略某项即不限制该维度
 - `q`：标题查询，支持空格 AND、`|` OR、`-` 排除、引号短语和反斜杠转义
+- `search_body=true`：将 `q` 的匹配范围扩展到标题和正文
 - `tag`、`character`：可重复，任一匹配，最多 32 个；角色 ID 在所属游戏上下文中解释
 - `untagged`：包含无标签新闻
 - `news_type`：`article` 或 `video`
@@ -92,6 +93,8 @@ GET /api/v1/news/tags?game=ys&source=mys
 - `order`：`asc` 或 `desc`，默认 `desc`
 
 跨游戏和来源在服务端统一排序与分页，每条新闻返回 `game_id`、`source` 和 `id`。分页 `meta` 为 `null`。三个标识共同定位新闻，不能仅凭新闻 ID 判断身份
+
+启用正文搜索时，列表条目可以返回 `search_match.title` 和 `search_match.body`。前者包含完整标题，后者是命中位置附近的正文片段。两者均为有序的 `{text, highlight}` 纯文本片段，可按 `highlight` 渲染关键词。没有正向命中的字段会省略
 
 ```http
 GET /api/v1/news/{game_id}/{source}/{news_id}

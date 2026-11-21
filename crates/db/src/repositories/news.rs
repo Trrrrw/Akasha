@@ -1,6 +1,7 @@
 mod commands;
 mod projections;
 mod queries;
+pub(crate) mod search;
 
 pub(crate) use commands::{replace_news_characters, replace_news_tags, update_news};
 pub(crate) use queries::{

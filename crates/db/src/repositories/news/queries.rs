@@ -51,7 +51,19 @@ pub async fn list(db: &Db, filter: ListNewsFilter) -> Result<(u64, Vec<NewsSumma
         .await
         .map_err(DbError::Query)?;
 
-    let items = summaries_across_sources(db, rows).await?;
+    let mut items = summaries_across_sources(db, rows).await?;
+    if filter.filter.search_body
+        && let Some(query) = &filter.filter.text_query
+    {
+        let terms = super::search::highlight_terms(query);
+        if !terms.is_empty() {
+            for item in &mut items {
+                item.search_match =
+                    super::search::excerpts(&terms, &item.title, item.intro.as_deref())
+                        .map_err(DbError::Query)?;
+            }
+        }
+    }
 
     Ok((total, items))
 }
@@ -151,11 +163,13 @@ fn filtered_query(filter: &NewsFilter) -> Result<Select<news::Entity>, DbError> 
                 .add(related_characters!(zzz_news_characters_link)),
         );
     }
-    if let Some(text) = &filter.title_query {
-        query = query.filter(text_query_condition(
-            text,
-            &[Expr::col(news::Column::Title)],
-        ));
+    if let Some(text) = &filter.text_query {
+        let condition = if filter.search_body {
+            super::search::condition(text)
+        } else {
+            text_query_condition(text, &[Expr::col(news::Column::Title)])
+        };
+        query = query.filter(condition);
     }
     Ok(query)
 }
@@ -675,6 +689,7 @@ fn into_summary(
         video_playback: row.video_playback.map(app_video_playback),
         video_duration_ms: row.video_duration_ms,
         intro: row.intro,
+        search_match: None,
     }
 }
 

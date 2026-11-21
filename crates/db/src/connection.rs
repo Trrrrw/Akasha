@@ -37,6 +37,9 @@ impl Db {
         let db = Self::connect(options).await?;
         db.sync_schema().await?;
         db.sync_indexes().await?;
+        crate::repositories::news::search::initialize(db.conn())
+            .await
+            .map_err(DbError::SyncIndexes)?;
         db.seed_required_data().await?;
         Ok(db)
     }

@@ -408,6 +408,7 @@ mod tests {
             video_playback: Some(akasha_application::news::VideoPlayback::Direct),
             video_duration_ms: Some(154_633),
             intro: Some("<p>第一段 <strong>简介</strong></p><p>第二段</p>".to_owned()),
+            search_match: None,
         }
     }
 

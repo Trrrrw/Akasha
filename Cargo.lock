@@ -73,6 +73,7 @@ version = "0.1.0"
 dependencies = [
  "akasha-application",
  "chrono",
+ "html2text",
  "sea-orm",
  "serde_json",
  "thiserror",

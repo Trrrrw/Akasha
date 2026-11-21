@@ -1,5 +1,6 @@
 use akasha_application::news::{
-    NewsCharacter, NewsDetailResult, NewsSource, NewsSummary, NewsTag, VideoPlayback,
+    NewsCharacter, NewsDetailResult, NewsSearchMatch, NewsSearchPart, NewsSource, NewsSummary,
+    NewsTag, VideoPlayback,
 };
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -213,6 +214,45 @@ pub(crate) struct NewsItemResponse {
     video_duration: Option<u64>,
     /// 新闻简介，可能包含来源 HTML
     intro: Option<String>,
+    /// 开启正文搜索时，返回含有正向关键词命中的字段片段
+    #[serde(skip_serializing_if = "Option::is_none")]
+    search_match: Option<NewsSearchMatchResponse>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct NewsSearchMatchResponse {
+    /// 完整标题的分段，标题有命中时返回
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<Vec<NewsSearchPartResponse>>,
+    /// 命中位置附近的正文分段
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body: Option<Vec<NewsSearchPartResponse>>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct NewsSearchPartResponse {
+    /// 纯文本
+    text: String,
+    /// 是否命中正向关键词
+    highlight: bool,
+}
+
+impl From<NewsSearchMatch> for NewsSearchMatchResponse {
+    fn from(value: NewsSearchMatch) -> Self {
+        fn parts(parts: Vec<NewsSearchPart>) -> Vec<NewsSearchPartResponse> {
+            parts
+                .into_iter()
+                .map(|part| NewsSearchPartResponse {
+                    text: part.text,
+                    highlight: part.highlight,
+                })
+                .collect()
+        }
+        Self {
+            title: value.title.map(parts),
+            body: value.body.map(parts),
+        }
+    }
 }
 
 /// 公开视频播放方式
@@ -383,6 +423,7 @@ impl NewsItemResponse {
             video_playback,
             video_duration: value.video_duration_ms.and_then(video_duration_seconds),
             intro: value.intro,
+            search_match: value.search_match.map(NewsSearchMatchResponse::from),
         }
     }
 }
@@ -453,6 +494,7 @@ mod tests {
             video_playback: video_url.map(|_| VideoPlayback::Direct),
             video_duration_ms: None,
             intro: None,
+            search_match: None,
         }
     }
 
